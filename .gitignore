@@ -1,0 +1,11 @@
+bin/
+obj/
+output/
+*.user
+.vs/
+
+# Runtime artifacts
+models/*.onnx
+models/*.json
+config/.last_profile
+data/

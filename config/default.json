@@ -1,0 +1,19 @@
+{
+  "ProfileName": "default",
+  "BackboneId": "wide_resnet50_2",
+  "CustomBackboneOnnxPath": "",
+  "BackboneOnnxPath": "models/wide_resnet50_2_features.onnx",
+  "ImageSize": 224,
+  "PatchSize": 3,
+  "NumNeighbors": 9,
+  "CoresetRatio": 0.1,
+  "TargetEmbedDimension": 1024,
+  "AnomalyThreshold": 0.5,
+  "UseManualThreshold": false,
+  "OkTrainPath": "data/train/good",
+  "OkTunePath": "data/tune/ok",
+  "NgTunePath": "data/tune/ng",
+  "ModelOutputPath": "models/patchcore_model.json",
+  "InferModelPath": "models/patchcore_model.json",
+  "AutoSearchNeighbors": true
+}

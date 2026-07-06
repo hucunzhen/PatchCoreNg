@@ -1,0 +1,460 @@
+﻿<Window x:Class="PatchCoreNg.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:PatchCoreNg.App"
+        Title="PatchCore-NG 工业异常检测"
+        Height="800"
+        Width="1100"
+        MinHeight="640"
+        MinWidth="960"
+        WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <local:PathToImageSourceConverter x:Key="PathToImageSourceConverter"/>
+        <Style x:Key="SectionTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+            <Setter Property="Width" Value="108"/>
+        </Style>
+        <Style x:Key="PathTextBox" TargetType="TextBox">
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Background" Value="#FFF7F7F7"/>
+        </Style>
+        <Style x:Key="BrowseButton" TargetType="Button">
+            <Setter Property="Width" Value="88"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Margin" Value="8,0,0,0"/>
+        </Style>
+        <Style x:Key="PrimaryButton" TargetType="Button">
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="MinWidth" Value="120"/>
+            <Setter Property="Padding" Value="16,0"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style TargetType="ToolTip">
+            <Setter Property="MaxWidth" Value="440"/>
+            <Setter Property="Padding" Value="10,8"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,8">
+            <TextBlock Text="PatchCore-NG" FontSize="24" FontWeight="Bold"/>
+            <TextBlock Text="基于 Memory Bank 的工业异常检测 · 训练与调参 / 推理" Foreground="#666" Margin="0,4,0,0"/>
+        </StackPanel>
+
+        <Border Grid.Row="1" Margin="0,0,0,12" Padding="12" Background="#F5F8FC" BorderBrush="#D0DEEE" BorderThickness="1" CornerRadius="6">
+            <StackPanel>
+                <Grid Margin="0,0,0,8">
+                    <Grid.ToolTip>
+                        <ToolTip>
+                            <TextBlock TextWrapping="Wrap"
+                                       Text="在此切换多套配置。选择下拉项后自动加载对应参数（含样本目录、模型路径、超参数）。修改未保存时会提示是否保存。程序会记住上次使用的配置。"/>
+                        </ToolTip>
+                    </Grid.ToolTip>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="200"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="当前配置" Width="72"/>
+                    <ComboBox Grid.Column="1" Height="32"
+                              ItemsSource="{Binding AvailableProfiles}"
+                              SelectedItem="{Binding SelectedProfile, UpdateSourceTrigger=PropertyChanged}"
+                              VerticalContentAlignment="Center"/>
+                    <Button Grid.Column="2" Style="{StaticResource BrowseButton}" Content="保存" Margin="8,0,0,0"
+                            Command="{Binding SaveParamsCommand}"/>
+                    <Button Grid.Column="3" Style="{StaticResource BrowseButton}" Content="另存为" Margin="4,0,0,0"
+                            Command="{Binding SaveProfileAsCommand}"/>
+                    <Button Grid.Column="4" Style="{StaticResource BrowseButton}" Content="新建" Margin="4,0,0,0"
+                            Command="{Binding NewProfileCommand}"/>
+                    <Button Grid.Column="5" Style="{StaticResource BrowseButton}" Content="删除" Margin="4,0,0,0"
+                            Command="{Binding DeleteProfileCommand}"/>
+                    <Button Grid.Column="6" Style="{StaticResource BrowseButton}" Content="刷新" Margin="4,0,0,0"
+                            Command="{Binding RefreshProfilesCommand}"/>
+                    <TextBlock Grid.Column="7" VerticalAlignment="Center" Margin="12,0,0,0"
+                               Foreground="#1565C0" FontWeight="SemiBold" Text="{Binding ActiveProfileHint}"/>
+                </Grid>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="160"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="另存为" Width="72"/>
+                    <TextBox Grid.Column="1" Height="32" VerticalContentAlignment="Center" Text="{Binding ProfileName}"/>
+                    <TextBlock Grid.Column="2" Style="{StaticResource FieldLabel}" Text="配置目录" Margin="8,0,8,0"/>
+                    <TextBox Grid.Column="3" Style="{StaticResource PathTextBox}" Text="{Binding ParamsConfigDir}"/>
+                    <Button Grid.Column="4" Style="{StaticResource BrowseButton}" Content="浏览..." Command="{Binding BrowseParamsConfigDirCommand}"/>
+                </Grid>
+                <TextBlock Text="{Binding ParamsStatus}" Foreground="#666" Margin="80,6,0,0" TextWrapping="Wrap"/>
+            </StackPanel>
+        </Border>
+
+        <TabControl Grid.Row="2">
+            <!-- 训练与调参 -->
+            <TabItem Header="训练与调参">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="12">
+
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="1. 样本目录"/>
+
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ToolTip>
+                                <ToolTip>
+                                    <TextBlock TextWrapping="Wrap"
+                                               Text="OK 训练目录（必填）&#x0a;放置无缺陷的正常产品图像。PatchCore 会从中提取 patch 特征，经 Coreset 采样后写入 Memory Bank，作为后续异常检测的参照基准。&#x0a;建议：覆盖典型正常外观变化，数量越多越好。"/>
+                                </ToolTip>
+                            </Grid.ToolTip>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="OK 训练目录"/>
+                            <TextBox Grid.Column="1" Style="{StaticResource PathTextBox}" Text="{Binding TrainDataPath}"/>
+                            <Button Grid.Column="2" Style="{StaticResource BrowseButton}" Content="浏览..." Command="{Binding BrowseTrainDataCommand}"/>
+                        </Grid>
+                        <TextBlock Margin="116,0,0,8" Foreground="#666" TextWrapping="Wrap"
+                                   Text="正常样本，用于构建 Memory Bank（必填）"/>
+
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ToolTip>
+                                <ToolTip>
+                                    <TextBlock TextWrapping="Wrap"
+                                               Text="OK 调参目录（可选）&#x0a;用于验证的正常样本，不参与 Memory Bank 构建。与 NG 调参目录一起，自动搜索使 OK/NG 区分效果最好的异常阈值和 kNN 邻居数。&#x0a;留空则使用 OK 训练目录评分（易偏乐观，建议单独准备验证 OK）。"/>
+                                </ToolTip>
+                            </Grid.ToolTip>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="OK 调参目录"/>
+                            <TextBox Grid.Column="1" Style="{StaticResource PathTextBox}" Text="{Binding OkTunePath}"/>
+                            <Button Grid.Column="2" Style="{StaticResource BrowseButton}" Content="浏览..." Command="{Binding BrowseOkTuneCommand}"/>
+                        </Grid>
+                        <TextBlock Margin="116,0,0,8" Foreground="#666" TextWrapping="Wrap"
+                                   Text="正常样本验证集，用于调阈值（可选，默认同训练目录）"/>
+
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ToolTip>
+                                <ToolTip>
+                                    <TextBlock TextWrapping="Wrap"
+                                               Text="NG 调参目录（推荐）&#x0a;放置已知缺陷/异常样本。系统对 OK 与 NG 样本分别打分，以 F1 最优为准自动确定异常阈值；勾选「自动搜索 kNN」时还会比较 1/3/5/9/15 等邻居数。&#x0a;未填写时跳过 OK/NG 调参，仅使用训练集 P95 作为阈值。"/>
+                                </ToolTip>
+                            </Grid.ToolTip>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="NG 调参目录"/>
+                            <TextBox Grid.Column="1" Style="{StaticResource PathTextBox}" Text="{Binding NgTunePath}"/>
+                            <Button Grid.Column="2" Style="{StaticResource BrowseButton}" Content="浏览..." Command="{Binding BrowseNgTuneCommand}"/>
+                        </Grid>
+                        <TextBlock Margin="116,0,0,16" Foreground="#666" TextWrapping="Wrap"
+                                   Text="异常样本，与 OK 调参目录一起自动搜索最佳阈值和 kNN（推荐填写）"/>
+
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="2. 模型与超参数"/>
+
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ToolTip>
+                                <ToolTip>
+                                    <TextBlock TextWrapping="Wrap"
+                                               Text="模型输出路径&#x0a;训练完成后保存的 .json 模型文件，包含 Memory Bank、Coreset 参数、调参后的异常阈值和 kNN 设置。推理页可直接加载此文件。"/>
+                                </ToolTip>
+                            </Grid.ToolTip>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="模型输出"/>
+                            <TextBox Grid.Column="1" Style="{StaticResource PathTextBox}" Text="{Binding ModelOutputPath}"/>
+                            <Button Grid.Column="2" Style="{StaticResource BrowseButton}" Content="浏览..." Command="{Binding BrowseModelOutputCommand}"/>
+                        </Grid>
+
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ToolTip>
+                                <ToolTip>
+                                    <TextBlock TextWrapping="Wrap"
+                                               Text="特征提取骨干网络（Backbone）&#x0a;预训练 CNN，负责从图像提取多层 patch 特征。WideResNet-50 为 PatchCore 论文默认；ResNet-18 / MobileNet 更快；WideResNet-101 / ResNet-101 精度更高但更慢。&#x0a;切换 backbone 后须重新训练，且需先导出对应 ONNX。"/>
+                                </ToolTip>
+                            </Grid.ToolTip>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="280"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="Backbone"/>
+                            <ComboBox Grid.Column="1" Height="32"
+                                      ItemsSource="{Binding AvailableBackbones}"
+                                      DisplayMemberPath="DisplayName"
+                                      SelectedValuePath="Id"
+                                      SelectedValue="{Binding SelectedBackboneId}"/>
+                            <TextBlock Grid.Column="2" VerticalAlignment="Center" Margin="12,0,0,0"
+                                       Foreground="#666" Text="{Binding BackboneDescription}"/>
+                        </Grid>
+
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ToolTip>
+                                <ToolTip>
+                                    <TextBlock TextWrapping="Wrap"
+                                               Text="Backbone 对应的 ONNX 特征提取模型路径。预设 backbone 自动关联 models 目录下文件；选「自定义 ONNX」可手动指定。&#x0a;导出命令：python scripts/export_backbone.py --backbone &lt;名称&gt;"/>
+                                </ToolTip>
+                            </Grid.ToolTip>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="ONNX 路径"/>
+                            <TextBox Grid.Column="1" Style="{StaticResource PathTextBox}" Text="{Binding BackboneOnnxPath}"
+                                     IsReadOnly="{Binding IsCustomBackbone, Converter={x:Static local:InverseBooleanConverter.Instance}, FallbackValue=False}"/>
+                            <Button Grid.Column="2" Style="{StaticResource BrowseButton}" Content="浏览..."
+                                    Command="{Binding BrowseBackboneCommand}"/>
+                        </Grid>
+                        <StackPanel Margin="116,0,0,8">
+                            <TextBlock Text="{Binding BackboneStatus}" Foreground="#1565C0"/>
+                        </StackPanel>
+
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ToolTip>
+                                <ToolTip>
+                                    <TextBlock TextWrapping="Wrap"
+                                               Text="输入尺寸：训练/推理前图像缩放边长（像素），默认 224，须与 ONNX 导出尺寸一致。&#x0a;Patch 大小：局部邻域聚合窗口，须为奇数（默认 3）。每个 patch 与其周围特征做平均，使异常定位更稳定。"/>
+                                </ToolTip>
+                            </Grid.ToolTip>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="100"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="100"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="100"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="输入尺寸"/>
+                            <TextBox Grid.Column="1" Height="32" VerticalContentAlignment="Center" Text="{Binding ImageSize}"/>
+                            <TextBlock Grid.Column="2" Style="{StaticResource FieldLabel}" Text="Patch" Margin="8,0,8,0"/>
+                            <TextBox Grid.Column="3" Height="32" VerticalContentAlignment="Center" Text="{Binding PatchSize}"/>
+                            <TextBlock Grid.Column="4" Style="{StaticResource FieldLabel}" Text="Coreset" Margin="8,0,8,0"/>
+                            <TextBox Grid.Column="5" Height="32" VerticalContentAlignment="Center" Text="{Binding CoresetRatio}">
+                                <TextBox.ToolTip>
+                                    <ToolTip>
+                                        <TextBlock TextWrapping="Wrap"
+                                                   Text="Coreset 采样比例（0~1）&#x0a;从全部 patch 中贪心选取代表性子集写入 Memory Bank。&#x0a;• 0.1（10%）：常用默认，精度与速度平衡&#x0a;• 0.01~0.05：更快、更省内存，适合大规模部署&#x0a;• 越大：Memory Bank 越大，训练/推理越慢，可能略增精度&#x0a;比例越高，Coreset 采样耗时越长。"/>
+                                    </ToolTip>
+                                </TextBox.ToolTip>
+                            </TextBox>
+                        </Grid>
+
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ToolTip>
+                                <ToolTip>
+                                    <TextBlock TextWrapping="Wrap"
+                                               Text="kNN 邻居数：推理时将每个 patch 与 Memory Bank 中最近 k 个邻居比较，取平均距离作为异常分数。默认 9，值越大分数越平滑。&#x0a;「自动搜索 kNN」：在 1/3/5/9/15 中结合 OK/NG 调参样本搜索 F1 最优值（需提供 NG 调参目录）。"/>
+                                </ToolTip>
+                            </Grid.ToolTip>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="100"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="kNN 邻居"/>
+                            <TextBox Grid.Column="1" Height="32" VerticalContentAlignment="Center" Text="{Binding NumNeighbors}"/>
+                            <CheckBox Grid.Column="2" Content="自动搜索 kNN (1/3/5/9/15)" IsChecked="{Binding AutoSearchNeighbors}"
+                                      Margin="16,0,0,0" VerticalAlignment="Center"/>
+                        </Grid>
+
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="3. 其他" Margin="0,8,0,0"/>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <Button Style="{StaticResource PrimaryButton}" Content="恢复默认" Command="{Binding ResetParamsCommand}">
+                                <Button.ToolTip>
+                                    <ToolTip>
+                                        <TextBlock TextWrapping="Wrap"
+                                                   Text="将超参数恢复为程序内置默认值（WideResNet-50、Coreset 0.1、kNN 9 等）。样本目录与模型路径也会重置，切换配置请使用顶部「当前配置」下拉框。"/>
+                                    </ToolTip>
+                                </Button.ToolTip>
+                            </Button>
+                        </StackPanel>
+
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="4. 执行"/>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <Button Style="{StaticResource PrimaryButton}" Content="训练并调参" Command="{Binding TrainCommand}">
+                                <Button.ToolTip>
+                                    <ToolTip>
+                                        <TextBlock TextWrapping="Wrap"
+                                                   Text="依次执行：&#x0a;1. 用 OK 训练目录构建 Memory Bank（Coreset 采样）&#x0a;2. 若提供 NG 调参目录，用 OK/NG 样本自动搜索最优阈值与 kNN&#x0a;3. 保存模型到「模型输出」路径&#x0a;耗时取决于样本数量、Coreset 比例和 backbone 大小。"/>
+                                    </ToolTip>
+                                </Button.ToolTip>
+                            </Button>
+                            <TextBlock Text="{Binding TrainTimeText}" VerticalAlignment="Center" Margin="16,0,0,0"
+                                       FontWeight="SemiBold" Foreground="#1565C0"/>
+                        </StackPanel>
+                        <TextBlock Text="{Binding TuneResultText}" Foreground="#2E7D32" TextWrapping="Wrap" Margin="0,0,0,8"/>
+
+                        <GroupBox Header="日志" MinHeight="180">
+                            <ScrollViewer x:Name="TrainLogScrollViewer"
+                                          VerticalScrollBarVisibility="Auto"
+                                          MaxHeight="260">
+                                <TextBox x:Name="TrainLogBox"
+                                         Text="{Binding TrainLog, Mode=OneWay}"
+                                         TextWrapping="Wrap"
+                                         AcceptsReturn="True"
+                                         IsReadOnly="True"
+                                         BorderThickness="0"
+                                         Background="Transparent"
+                                         FontFamily="Consolas"
+                                         FontSize="13"/>
+                            </ScrollViewer>
+                        </GroupBox>
+
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- 推理 -->
+            <TabItem Header="推理">
+                <Grid Margin="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="320"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Grid Grid.Column="0" Margin="0,0,12,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Style="{StaticResource SectionTitle}" Text="推理配置"/>
+
+                        <Grid Grid.Row="1" Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="模型文件"/>
+                            <TextBox Grid.Column="1" Style="{StaticResource PathTextBox}" Text="{Binding ModelPath}"/>
+                            <Button Grid.Column="2" Style="{StaticResource BrowseButton}" Content="浏览..." Command="{Binding BrowseModelCommand}"/>
+                        </Grid>
+
+                        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="116,0,0,8">
+                            <RadioButton Content="单张图像" IsChecked="{Binding InferSingleImage}" Margin="0,0,24,0"/>
+                            <RadioButton Content="图像目录" IsChecked="{Binding InferDirectory}"/>
+                        </StackPanel>
+
+                        <Grid Grid.Row="3" Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="{Binding InferInputLabel}"/>
+                            <TextBox Grid.Column="1" Style="{StaticResource PathTextBox}" Text="{Binding InferInputPath}"/>
+                            <Button Grid.Column="2" Style="{StaticResource BrowseButton}" Content="浏览..." Command="{Binding BrowseInferInputCommand}"/>
+                        </Grid>
+
+                        <Grid Grid.Row="4" Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="输出目录"/>
+                            <TextBox Grid.Column="1" Style="{StaticResource PathTextBox}" Text="{Binding InferOutputPath}"/>
+                            <Button Grid.Column="2" Style="{StaticResource BrowseButton}" Content="浏览..." Command="{Binding BrowseInferOutputCommand}"/>
+                        </Grid>
+
+                        <StackPanel Grid.Row="5" Orientation="Horizontal" Margin="0,0,0,8">
+                            <Button Style="{StaticResource PrimaryButton}" Content="开始推理" Command="{Binding PredictCommand}"/>
+                            <TextBlock Text="{Binding InferTimeText}" VerticalAlignment="Center" Margin="16,0,0,0"
+                                       FontWeight="SemiBold" Foreground="#1565C0"/>
+                        </StackPanel>
+
+                        <TextBlock Grid.Row="6" Text="{Binding InferSummary}" Margin="0,0,0,8" Foreground="#444"/>
+
+                        <DataGrid Grid.Row="7"
+                                  ItemsSource="{Binding Predictions}"
+                                  AutoGenerateColumns="False"
+                                  IsReadOnly="True"
+                                  CanUserAddRows="False"
+                                  SelectionMode="Single"
+                                  SelectionChanged="PredictionsGrid_OnSelectionChanged">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="文件" Binding="{Binding FileName}" Width="*"/>
+                                <DataGridTextColumn Header="分数" Binding="{Binding Score, StringFormat=F4}" Width="90"/>
+                                <DataGridTextColumn Header="结果" Binding="{Binding Label}" Width="70"/>
+                                <DataGridTextColumn Header="耗时" Binding="{Binding ElapsedText}" Width="120"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
+
+                    <GroupBox Grid.Column="1" Header="预览">
+                        <Grid>
+                            <Image Stretch="Uniform">
+                                <Image.Source>
+                                    <Binding Path="PreviewImagePath" Converter="{StaticResource PathToImageSourceConverter}"/>
+                                </Image.Source>
+                                <Image.Style>
+                                    <Style TargetType="Image">
+                                        <Style.Triggers>
+                                            <Trigger Property="Source" Value="{x:Null}">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Image.Style>
+                            </Image>
+                            <TextBlock Text="推理完成后显示热力图或原图"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       Foreground="#999">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding PreviewImagePath}" Value="{x:Null}">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
+                    </GroupBox>
+                </Grid>
+            </TabItem>
+        </TabControl>
+    </Grid>
+</Window>

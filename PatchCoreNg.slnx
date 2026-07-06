@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PatchCoreNg.App/PatchCoreNg.App.csproj" />
+    <Project Path="src/PatchCoreNg.Core/PatchCoreNg.Core.csproj" />
+    <Project Path="src/PatchCoreNg/PatchCoreNg.csproj" />
+  </Folder>
+</Solution>
