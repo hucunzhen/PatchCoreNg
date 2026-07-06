@@ -18,6 +18,9 @@ public sealed class PatchCorePredictor : IDisposable
     private readonly MemoryBank _memoryBank;
     private readonly PatchCoreModel _model;
 
+    public string ExecutionProvider => _extractor.ExecutionProvider;
+    internal FeatureExtractor Extractor => _extractor;
+
     public PatchCorePredictor(PatchCoreModel model, PatchCoreConfig? config = null)
     {
         _model = model;
@@ -31,7 +34,11 @@ public sealed class PatchCorePredictor : IDisposable
             AnomalyThreshold = model.AnomalyThreshold
         };
 
-        _extractor = new FeatureExtractor(_config.BackboneOnnxPath, _config.ImageSize);
+        _extractor = new FeatureExtractor(
+            _config.BackboneOnnxPath,
+            _config.ImageSize,
+            _config.UseGpu,
+            _config.GpuDeviceId);
         _memoryBank = new MemoryBank(model.MemoryBank);
     }
 
@@ -39,6 +46,14 @@ public sealed class PatchCorePredictor : IDisposable
     {
         var tensor = ImagePreprocessor.LoadAndPreprocess(imagePath, _config.ImageSize);
         var featureMap = _extractor.Extract(tensor);
+        return PredictFromFeatureMap(imagePath, featureMap, outputDir);
+    }
+
+    public PredictionResult PredictFromFeatureMap(
+        string imagePath,
+        FeatureMap featureMap,
+        string? outputDir = null)
+    {
         var patches = LocalAggregator.Aggregate(featureMap, _config.PatchSize);
         var (_, imageScore, _) = _memoryBank.Score(patches, _config.NumNeighbors);
 

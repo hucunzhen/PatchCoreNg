@@ -28,6 +28,10 @@ public sealed class PatchCoreSettings
     public int SplitSeed { get; set; } = 42;
     public string ModelOutputDir { get; set; } = "models";
     public bool AutoSearchNeighbors { get; set; } = true;
+    public bool UseGpu { get; set; } = true;
+    public int GpuDeviceId { get; set; }
+    public int InferenceBatchSize { get; set; } = 8;
+    public int PreprocessParallelism { get; set; }
 
     // 兼容旧版：原为模型文件路径
     public string ModelOutputPath { get; set; } = string.Empty;
@@ -139,7 +143,11 @@ public sealed class PatchCoreSettings
         CoresetRatio = CoresetRatio,
         TargetEmbedDimension = TargetEmbedDimension,
         AnomalyThreshold = AnomalyThreshold,
-        UseManualThreshold = UseManualThreshold
+        UseManualThreshold = UseManualThreshold,
+        UseGpu = UseGpu,
+        GpuDeviceId = GpuDeviceId,
+        InferenceBatchSize = InferenceBatchSize,
+        PreprocessParallelism = PreprocessParallelism
     };
 
     public void ApplyFrom(PatchCoreConfig config)
@@ -154,6 +162,10 @@ public sealed class PatchCoreSettings
         TargetEmbedDimension = config.TargetEmbedDimension;
         AnomalyThreshold = config.AnomalyThreshold;
         UseManualThreshold = config.UseManualThreshold;
+        UseGpu = config.UseGpu;
+        GpuDeviceId = config.GpuDeviceId;
+        InferenceBatchSize = config.InferenceBatchSize;
+        PreprocessParallelism = config.PreprocessParallelism;
     }
 }
 

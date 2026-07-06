@@ -12,6 +12,10 @@ public sealed class PatchCoreConfig
     public int TargetEmbedDimension { get; init; } = 1024;
     public float AnomalyThreshold { get; init; } = 0.5f;
     public bool UseManualThreshold { get; init; }
+    public bool UseGpu { get; init; } = true;
+    public int GpuDeviceId { get; init; }
+    public int InferenceBatchSize { get; init; } = 8;
+    public int PreprocessParallelism { get; init; }
 
     public static readonly float[] ImageNetMean = [0.485f, 0.456f, 0.406f];
     public static readonly float[] ImageNetStd = [0.229f, 0.224f, 0.225f];

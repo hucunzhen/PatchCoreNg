@@ -22,5 +22,9 @@
   "NgTuneCount": 3,
   "SplitSeed": 42,
   "ModelOutputDir": "models",
-  "AutoSearchNeighbors": true
+  "AutoSearchNeighbors": true,
+  "UseGpu": true,
+  "GpuDeviceId": 0,
+  "InferenceBatchSize": 8,
+  "PreprocessParallelism": 0
 }

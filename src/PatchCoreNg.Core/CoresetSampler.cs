@@ -12,7 +12,8 @@ public static class CoresetSampler
     public static float[][] Sample(
         float[][] embeddings,
         double ratio,
-        IProgress<string>? progress = null)
+        StepProgress? log = null,
+        string step = "Coreset采样")
     {
         if (embeddings.Length == 0)
             return [];
@@ -23,14 +24,12 @@ public static class CoresetSampler
 
         if (targetCount >= n)
         {
-            progress?.Report($"Coreset 采样: 保留全部 {n} 个 patch");
+            log?.Info(step, $"保留全部 {n} 个 patch");
             return embeddings;
         }
 
-        progress?.Report(
-            $"Coreset 采样开始: 目标 {targetCount}/{n} ({ratio:P0})，维度 {dim}，请稍候...");
+        log?.Begin(step, $"目标 {targetCount}/{n} ({ratio:P0}), 维度 {dim}");
 
-        // 扁平化存储，减少 jagged array 开销
         var flat = new float[n * dim];
         for (var i = 0; i < n; i++)
             embeddings[i].AsSpan().CopyTo(flat.AsSpan(i * dim, dim));
@@ -64,22 +63,21 @@ public static class CoresetSampler
                 || percent > lastReportedPercent
                 || elapsedMs - lastReportMs >= ReportIntervalMs;
 
-            if (shouldReport && progress != null)
+            if (shouldReport && log != null)
             {
                 lastReportMs = elapsedMs;
                 lastReportedPercent = percent;
-                var elapsed = stopwatch.Elapsed.TotalSeconds;
-                var rate = selectedCount / Math.Max(elapsed, 0.001);
+                var elapsed = stopwatch.Elapsed;
+                var rate = selectedCount / Math.Max(elapsed.TotalSeconds, 0.001);
                 var remaining = rate > 0 ? (targetCount - selectedCount) / rate : 0;
-                progress.Report(
-                    $"Coreset 采样: {selectedCount}/{targetCount} ({percent}%) | " +
-                    $"耗时 {elapsed:F1}s | 预计剩余 {remaining:F0}s");
+                log.Info(
+                    step,
+                    $"进度 {selectedCount}/{targetCount} ({percent}%) | " +
+                    $"已用 {StepProgress.FormatElapsed(elapsed)} | 预计剩余 {remaining:F0}s");
             }
         }
 
         stopwatch.Stop();
-        progress?.Report(
-            $"Coreset 采样完成: {selectedCount} 个 patch，耗时 {stopwatch.Elapsed.TotalSeconds:F1}s");
 
         var coreset = new float[selectedCount][];
         for (var i = 0; i < selectedCount; i++)
@@ -90,6 +88,7 @@ public static class CoresetSampler
             coreset[i] = vec;
         }
 
+        log?.End(step, stopwatch.Elapsed, $"{selectedCount} 个 patch");
         return coreset;
     }
 

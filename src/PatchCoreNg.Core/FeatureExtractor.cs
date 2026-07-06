@@ -9,34 +9,66 @@ public sealed class FeatureExtractor : IDisposable
     private readonly string _inputName;
     private readonly int _imageSize;
 
-    public FeatureExtractor(string onnxPath, int imageSize)
+    public string ExecutionProvider { get; }
+
+    public FeatureExtractor(string onnxPath, int imageSize, bool useGpu = true, int gpuDeviceId = 0)
     {
         if (!File.Exists(onnxPath))
             throw new FileNotFoundException(
                 $"未找到 backbone ONNX 模型: {onnxPath}\n请先运行: python scripts/export_backbone.py --list");
 
-        _session = new InferenceSession(onnxPath);
+        var created = OnnxSessionFactory.Create(onnxPath, useGpu, gpuDeviceId);
+        _session = created.Session;
+        ExecutionProvider = created.Provider;
         _inputName = _session.InputMetadata.Keys.First();
         _imageSize = imageSize;
     }
 
-    public FeatureMap Extract(float[] imageTensor)
+    public FeatureMap Extract(float[] imageTensor) => ExtractBatch([imageTensor])[0];
+
+    public IReadOnlyList<FeatureMap> ExtractBatch(IReadOnlyList<float[]> imageTensors)
     {
-        var inputShape = new[] { 1, 3, _imageSize, _imageSize };
+        if (imageTensors.Count == 0)
+            return [];
+
+        var pixelsPerImage = 3 * _imageSize * _imageSize;
+        var batch = imageTensors.Count;
+        var combined = new float[batch * pixelsPerImage];
+        for (var i = 0; i < batch; i++)
+        {
+            if (imageTensors[i].Length != pixelsPerImage)
+                throw new ArgumentException($"图像张量尺寸不匹配: 期望 {pixelsPerImage}, 实际 {imageTensors[i].Length}");
+
+            imageTensors[i].AsSpan().CopyTo(combined.AsSpan(i * pixelsPerImage, pixelsPerImage));
+        }
+
+        var inputShape = new[] { batch, 3, _imageSize, _imageSize };
         var input = NamedOnnxValue.CreateFromTensor(
             _inputName,
-            new DenseTensor<float>(imageTensor, inputShape));
+            new DenseTensor<float>(combined, inputShape));
 
         using var results = _session.Run([input]);
-        var output = results.First().AsTensor<float>().ToArray();
-        var dims = results.First().AsTensor<float>().Dimensions.ToArray();
+        var tensor = results.First().AsTensor<float>();
+        var dims = tensor.Dimensions.ToArray();
 
-        // Expected output: [1, C, H, W]
-        var channels = dims[^3];
-        var height = dims[^2];
-        var width = dims[^1];
+        if (dims.Length != 4)
+            throw new InvalidOperationException($"ONNX 输出维度异常: [{string.Join(", ", dims)}]");
 
-        return new FeatureMap(output, channels, height, width);
+        var channels = dims[1];
+        var height = dims[2];
+        var width = dims[3];
+        var spatial = channels * height * width;
+        var output = tensor.ToArray();
+        var maps = new List<FeatureMap>(batch);
+
+        for (var i = 0; i < batch; i++)
+        {
+            var slice = new float[spatial];
+            output.AsSpan(i * spatial, spatial).CopyTo(slice);
+            maps.Add(new FeatureMap(slice, channels, height, width));
+        }
+
+        return maps;
     }
 
     public void Dispose() => _session.Dispose();
