@@ -2,6 +2,8 @@ using System.Diagnostics;
 
 namespace PatchCoreNg;
 
+public readonly record struct FeatureMapScoreDetail(float ImageScore, float[] PatchDistances);
+
 internal static class FeaturePipeline
 {
     public static int ResolvePreprocessParallelism(int configured)
@@ -116,22 +118,57 @@ internal static class FeaturePipeline
         StepProgress? log = null,
         string step = "kNN打分")
     {
-        log?.Begin(step, $"{featureMaps.Count} 张, k={numNeighbors}");
+        return ScoreFeatureMapsDetailed(
+                memoryBank,
+                featureMaps,
+                patchSize,
+                numNeighbors,
+                parallelism,
+                log,
+                step)
+            .Select(d => d.ImageScore)
+            .ToList();
+    }
+
+    public static List<FeatureMapScoreDetail> ScoreFeatureMapsDetailed(
+        MemoryBank memoryBank,
+        IReadOnlyList<FeatureMap> featureMaps,
+        int patchSize,
+        int numNeighbors,
+        int parallelism,
+        StepProgress? log = null,
+        string step = "kNN打分")
+    {
+        var degree = ResolvePreprocessParallelism(parallelism);
+        log?.Begin(step, $"{featureMaps.Count} 张, k={numNeighbors}, 并行={degree}");
         var watch = Stopwatch.StartNew();
-        var scores = new float[featureMaps.Count];
+        var results = new FeatureMapScoreDetail[featureMaps.Count];
+        var completedCount = 0;
 
         Parallel.For(0, featureMaps.Count, new ParallelOptions
         {
-            MaxDegreeOfParallelism = ResolvePreprocessParallelism(parallelism),
+            MaxDegreeOfParallelism = degree,
         }, i =>
         {
             var patches = LocalAggregator.Aggregate(featureMaps[i], patchSize);
-            scores[i] = memoryBank.Score(patches, numNeighbors).ImageScore;
+            if (patches.Length == 0)
+            {
+                throw new InvalidOperationException(
+                    $"特征图为空 ({featureMaps[i].Channels}x{featureMaps[i].Height}x{featureMaps[i].Width})，" +
+                    "请检查 backbone ONNX 与训练时是否一致。");
+            }
+
+            var (distances, imageScore, _) = memoryBank.Score(patches, numNeighbors);
+            results[i] = new FeatureMapScoreDetail(imageScore, distances);
+
+            var done = Interlocked.Increment(ref completedCount);
+            if (log != null && (done == featureMaps.Count || done % 64 == 0))
+                log.Info(step, $"进度 {done}/{featureMaps.Count} | 已用 {StepProgress.FormatElapsed(watch.Elapsed)}");
         });
 
         watch.Stop();
-        log?.End(step, watch.Elapsed, $"{scores.Length} 个分数");
-        return scores.ToList();
+        log?.End(step, watch.Elapsed, $"{results.Length} 个分数");
+        return results.ToList();
     }
 
     public static List<float> ScoreImages(

@@ -407,6 +407,7 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
 
@@ -439,26 +440,31 @@
                             <Button Grid.Column="2" Style="{StaticResource BrowseButton}" Content="浏览..." Command="{Binding BrowseInferInputCommand}"/>
                         </Grid>
 
-                        <Grid Grid.Row="4" Margin="0,0,0,12">
+                        <CheckBox Grid.Row="4" Content="生成热力图" IsChecked="{Binding SaveHeatmap}"
+                                  Margin="116,0,0,8" ToolTip="开启后仅高亮超过判定阈值的区域；关闭则只输出分数与 OK/NG，更快"/>
+
+                        <Grid Grid.Row="5" Margin="0,0,0,12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="输出目录"/>
-                            <TextBox Grid.Column="1" Style="{StaticResource PathTextBox}" Text="{Binding InferOutputPath}"/>
-                            <Button Grid.Column="2" Style="{StaticResource BrowseButton}" Content="浏览..." Command="{Binding BrowseInferOutputCommand}"/>
+                            <TextBox Grid.Column="1" Style="{StaticResource PathTextBox}" Text="{Binding InferOutputPath}"
+                                     IsEnabled="{Binding SaveHeatmap}"/>
+                            <Button Grid.Column="2" Style="{StaticResource BrowseButton}" Content="浏览..."
+                                    Command="{Binding BrowseInferOutputCommand}" IsEnabled="{Binding SaveHeatmap}"/>
                         </Grid>
 
-                        <StackPanel Grid.Row="5" Orientation="Horizontal" Margin="0,0,0,8">
+                        <StackPanel Grid.Row="6" Orientation="Horizontal" Margin="0,0,0,8">
                             <Button Style="{StaticResource PrimaryButton}" Content="开始推理" Command="{Binding PredictCommand}"/>
                             <TextBlock Text="{Binding InferTimeText}" VerticalAlignment="Center" Margin="16,0,0,0"
                                        FontWeight="SemiBold" Foreground="#1565C0"/>
                         </StackPanel>
 
-                        <TextBlock Grid.Row="6" Text="{Binding InferSummary}" Margin="0,0,0,8" Foreground="#444"/>
+                        <TextBlock Grid.Row="7" Text="{Binding InferSummary}" Margin="0,0,0,8" Foreground="#444"/>
 
-                        <DataGrid Grid.Row="7"
+                        <DataGrid Grid.Row="8"
                                   ItemsSource="{Binding Predictions}"
                                   AutoGenerateColumns="False"
                                   IsReadOnly="True"

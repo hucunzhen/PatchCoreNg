@@ -369,23 +369,21 @@ public sealed class PatchCoreService
 
 
 
-        var resolvedConfig = AppPaths.Resolve(config ?? new PatchCoreConfig
+        var resolvedConfig = AppPaths.Resolve(
+            InferenceConfig.MergeForInference(model, config, resolvedModelPath));
 
+        var heatmapOutputDir = resolvedConfig.SaveHeatmap ? resolvedOutputDir : null;
+        var judgeStep = resolvedConfig.SaveHeatmap ? "推理-判定与热力图" : "推理-判定";
+
+        if (config is not null &&
+            (config.ImageSize != model.ImageSize ||
+             config.PatchSize != model.PatchSize ||
+             config.NumNeighbors != model.NumNeighbors))
         {
-
-            ImageSize = model.ImageSize,
-
-            PatchSize = model.PatchSize,
-
-            NumNeighbors = model.NumNeighbors,
-
-            CoresetRatio = model.CoresetRatio,
-
-            TargetEmbedDimension = model.TargetEmbedDimension,
-
-            AnomalyThreshold = model.AnomalyThreshold
-
-        });
+            log.Info(
+                "批量推理",
+                $"已使用模型内参数: image={model.ImageSize}, patch={model.PatchSize}, k={model.NumNeighbors}");
+        }
 
 
 
@@ -394,10 +392,8 @@ public sealed class PatchCoreService
         using var predictor = new PatchCorePredictor(model, resolvedConfig);
 
         log.Info(
-
             "批量推理",
-
-            $"{pathList.Count} 张 | 设备={predictor.ExecutionProvider} | batch={FeaturePipeline.ResolveBatchSize(resolvedConfig.InferenceBatchSize)}");
+            $"{pathList.Count} 张 | 设备={predictor.ExecutionProvider} | batch={FeaturePipeline.ResolveBatchSize(resolvedConfig.InferenceBatchSize)} | kNN并行={FeaturePipeline.ResolvePreprocessParallelism(resolvedConfig.PreprocessParallelism)} | 热力图={(resolvedConfig.SaveHeatmap ? "开" : "关")}");
 
 
 
@@ -425,61 +421,58 @@ public sealed class PatchCoreService
 
             "推理-特征提取");
 
+        var scoreDetails = FeaturePipeline.ScoreFeatureMapsDetailed(
+            predictor.MemoryBank,
+            featureMaps,
+            resolvedConfig.PatchSize,
+            resolvedConfig.NumNeighbors,
+            resolvedConfig.PreprocessParallelism,
+            log,
+            "推理-kNN");
 
+        if (heatmapOutputDir is not null)
+            Directory.CreateDirectory(heatmapOutputDir);
+
+        var parallelism = FeaturePipeline.ResolvePreprocessParallelism(resolvedConfig.PreprocessParallelism);
 
         var items = log.Run(
-
-            "推理-判定与热力图",
-
+            judgeStep,
             () =>
-
             {
-
-                var results = new List<TimedPredictionResult>(pathList.Count);
-
+                var results = new TimedPredictionResult[pathList.Count];
                 var watch = System.Diagnostics.Stopwatch.StartNew();
+                var completedCount = 0;
 
-                for (var i = 0; i < pathList.Count; i++)
-
+                Parallel.For(0, pathList.Count, new ParallelOptions
                 {
-
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    var path = pathList[i];
-
-                    if (log != null && (i == 0 || (i + 1) % 64 == 0 || i + 1 == pathList.Count))
-
-                        log.Info("推理-判定与热力图", $"进度 {i + 1}/{pathList.Count}");
-
-
-
+                    MaxDegreeOfParallelism = parallelism,
+                    CancellationToken = cancellationToken,
+                }, i =>
+                {
                     var itemStopwatch = System.Diagnostics.Stopwatch.StartNew();
-
-                    var result = predictor.PredictFromFeatureMap(path, featureMaps[i], resolvedOutputDir);
-
+                    var result = predictor.CreateResult(
+                        pathList[i],
+                        featureMaps[i],
+                        scoreDetails[i],
+                        heatmapOutputDir);
                     itemStopwatch.Stop();
 
-                    results.Add(new TimedPredictionResult
-
+                    results[i] = new TimedPredictionResult
                     {
-
                         Result = result,
-
                         Elapsed = itemStopwatch.Elapsed
+                    };
 
-                    });
-
-                }
-
-
+                    var done = Interlocked.Increment(ref completedCount);
+                    if (log != null && (done == pathList.Count || done % 64 == 0))
+                        log.Info(judgeStep, $"进度 {done}/{pathList.Count}");
+                });
 
                 watch.Stop();
-
-                return results;
-
+                return results.ToList();
             },
 
-            $"{pathList.Count} 张",
+            $"{pathList.Count} 张, 并行={parallelism}",
 
             results =>
 

@@ -16,6 +16,7 @@ public sealed class PatchCoreConfig
     public int GpuDeviceId { get; init; }
     public int InferenceBatchSize { get; init; } = 8;
     public int PreprocessParallelism { get; init; }
+    public bool SaveHeatmap { get; init; } = true;
 
     public static readonly float[] ImageNetMean = [0.485f, 0.456f, 0.406f];
     public static readonly float[] ImageNetStd = [0.229f, 0.224f, 0.225f];

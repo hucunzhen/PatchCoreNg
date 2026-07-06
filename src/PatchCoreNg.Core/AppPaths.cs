@@ -44,7 +44,12 @@ public static class AppPaths
             CoresetRatio = config.CoresetRatio,
             TargetEmbedDimension = config.TargetEmbedDimension,
             AnomalyThreshold = config.AnomalyThreshold,
-            UseManualThreshold = config.UseManualThreshold
+            UseManualThreshold = config.UseManualThreshold,
+            UseGpu = config.UseGpu,
+            GpuDeviceId = config.GpuDeviceId,
+            InferenceBatchSize = config.InferenceBatchSize,
+            PreprocessParallelism = config.PreprocessParallelism,
+            SaveHeatmap = config.SaveHeatmap,
         };
     }
 }

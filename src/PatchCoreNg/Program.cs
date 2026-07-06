@@ -112,22 +112,27 @@ internal static class Program
         Console.WriteLine("=== PatchCore-NG 推理 ===");
         Console.WriteLine($"模型: {modelPath}");
         Console.WriteLine($"输入: {input}");
+        Console.WriteLine($"热力图: {(config.SaveHeatmap ? "开" : "关")}");
 
         var model = PatchCoreModel.Load(modelPath);
-        using var predictor = new PatchCorePredictor(model, config);
+        var inferenceConfig = InferenceConfig.MergeForInference(model, config, modelPath);
+        using var predictor = new PatchCorePredictor(model, inferenceConfig);
 
         var imagePaths = ImagePreprocessor.EnumerateImages(input).ToList();
         if (imagePaths.Count == 0)
             throw new InvalidOperationException($"未找到图像: {input}");
 
-        Directory.CreateDirectory(outputDir);
+        string? heatmapDir = inferenceConfig.SaveHeatmap ? outputDir : null;
+        if (heatmapDir is not null)
+            Directory.CreateDirectory(heatmapDir);
+
         var anomalies = 0;
         var totalStopwatch = System.Diagnostics.Stopwatch.StartNew();
 
         foreach (var imagePath in imagePaths)
         {
             var itemStopwatch = System.Diagnostics.Stopwatch.StartNew();
-            var result = predictor.Predict(imagePath, outputDir);
+            var result = predictor.Predict(imagePath, heatmapDir);
             itemStopwatch.Stop();
             Console.WriteLine(
                 $"{Path.GetFileName(result.ImagePath)}  score={result.AnomalyScore:F4}  label={result.Label}  耗时={itemStopwatch.Elapsed.TotalSeconds:F2}s");
@@ -138,7 +143,8 @@ internal static class Program
         totalStopwatch.Stop();
         Console.WriteLine($"完成: {imagePaths.Count} 张, NG={anomalies}, OK={imagePaths.Count - anomalies}");
         Console.WriteLine($"总耗时: {totalStopwatch.Elapsed.TotalSeconds:F2} 秒");
-        Console.WriteLine($"热力图目录: {outputDir}");
+        if (heatmapDir is not null)
+            Console.WriteLine($"热力图目录: {heatmapDir}");
         return 0;
     }
 
@@ -163,7 +169,9 @@ internal static class Program
             NumNeighbors = int.Parse(options.GetValueOrDefault("neighbors", "9")),
             CoresetRatio = double.Parse(options.GetValueOrDefault("coreset", "0.1")),
             TargetEmbedDimension = int.Parse(options.GetValueOrDefault("embed-dim", "1024")),
-            AnomalyThreshold = float.Parse(options.GetValueOrDefault("threshold", "0.5"))
+            AnomalyThreshold = float.Parse(options.GetValueOrDefault("threshold", "0.5")),
+            SaveHeatmap = !options.TryGetValue("no-heatmap", out var noHeatmap)
+                || string.Equals(noHeatmap, "false", StringComparison.OrdinalIgnoreCase)
         };
     }
 
@@ -231,6 +239,7 @@ internal static class Program
               --neighbors  kNN 邻居数 (默认 9)
               --coreset    coreset 采样比例 (默认 0.1)
               --threshold  异常阈值 (默认 0.5)
+              --no-heatmap 仅输出分数与判定，不生成热力图
 
             首次使用:
               python scripts/export_backbone.py --all

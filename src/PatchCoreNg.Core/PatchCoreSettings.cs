@@ -32,6 +32,7 @@ public sealed class PatchCoreSettings
     public int GpuDeviceId { get; set; }
     public int InferenceBatchSize { get; set; } = 8;
     public int PreprocessParallelism { get; set; }
+    public bool SaveHeatmap { get; set; } = true;
 
     // 兼容旧版：原为模型文件路径
     public string ModelOutputPath { get; set; } = string.Empty;
@@ -147,7 +148,8 @@ public sealed class PatchCoreSettings
         UseGpu = UseGpu,
         GpuDeviceId = GpuDeviceId,
         InferenceBatchSize = InferenceBatchSize,
-        PreprocessParallelism = PreprocessParallelism
+        PreprocessParallelism = PreprocessParallelism,
+        SaveHeatmap = SaveHeatmap
     };
 
     public void ApplyFrom(PatchCoreConfig config)
@@ -166,6 +168,7 @@ public sealed class PatchCoreSettings
         GpuDeviceId = config.GpuDeviceId;
         InferenceBatchSize = config.InferenceBatchSize;
         PreprocessParallelism = config.PreprocessParallelism;
+        SaveHeatmap = config.SaveHeatmap;
     }
 }
 

@@ -308,6 +308,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public string InferInputLabel => InferSingleImage ? "图像文件" : "图像目录";
 
+    public bool SaveHeatmap
+    {
+        get => _settings.SaveHeatmap;
+        set
+        {
+            if (_settings.SaveHeatmap != value)
+            {
+                _settings.SaveHeatmap = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
     public string InferTimeText
     {
         get => _inferTimeText;
@@ -597,13 +610,24 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         var dialog = new OpenFileDialog
         {
-            Title = "选择模型",
-            Filter = "PatchCore 模型 (*.json)|*.json",
+            Title = "选择模型 (patchcore_model.json)",
+            Filter = "PatchCore 模型 (patchcore_model.json)|patchcore_model.json|JSON 文件 (*.json)|*.json",
             InitialDirectory = GetInitialDirectory(ModelPath)
         };
 
-        if (dialog.ShowDialog() == true)
+        if (dialog.ShowDialog() != true)
+            return;
+
+        try
+        {
+            var model = PatchCoreModel.Load(dialog.FileName);
             ModelPath = dialog.FileName;
+            AppendTrainLog($"已加载模型: {dialog.FileName} (Memory Bank={model.MemoryBank.Length})");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "模型无效", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
 
     private void BrowseInferInput()
@@ -980,6 +1004,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _settings.NgTuneCount = settings.NgTuneCount;
             _settings.SplitSeed = settings.SplitSeed;
             _settings.AutoSearchNeighbors = settings.AutoSearchNeighbors;
+            _settings.UseGpu = settings.UseGpu;
+            _settings.GpuDeviceId = settings.GpuDeviceId;
+            _settings.InferenceBatchSize = settings.InferenceBatchSize;
+            _settings.PreprocessParallelism = settings.PreprocessParallelism;
+            _settings.SaveHeatmap = settings.SaveHeatmap;
             settings.NormalizeModelOutputDir();
             _settings.ModelOutputDir = settings.ModelOutputDir;
             _settings.SyncBackbonePath();
@@ -1008,6 +1037,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(TargetEmbedDimension));
             OnPropertyChanged(nameof(AnomalyThreshold));
             OnPropertyChanged(nameof(UseManualThreshold));
+            OnPropertyChanged(nameof(SaveHeatmap));
             OnPropertyChanged(nameof(BackboneOnnxPath));
             UpdateBackboneUi();
             _isProfileDirty = false;
@@ -1153,7 +1183,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 ? $"手动阈值={config.AnomalyThreshold:F4}"
                 : "模型自动阈值";
             InferSummary =
-                $"Backbone={BackboneCatalog.Get(SelectedBackboneId).DisplayName} | 完成 {batch.Items.Count} 张 | NG={ngCount} | OK={batch.Items.Count - ngCount} | {thresholdHint}";
+                $"Backbone={BackboneCatalog.Get(SelectedBackboneId).DisplayName} | 完成 {batch.Items.Count} 张 | NG={ngCount} | OK={batch.Items.Count - ngCount} | {thresholdHint}" +
+                (config.SaveHeatmap ? "" : " | 仅结果（无热力图）");
             PreviewImagePath = Predictions.LastOrDefault()?.PreviewPath;
         }
         catch (Exception ex)
