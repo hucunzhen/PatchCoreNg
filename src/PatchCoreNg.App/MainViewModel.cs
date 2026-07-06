@@ -12,10 +12,10 @@ public sealed class PredictionRowViewModel
 {
     public required string FileName { get; init; }
     public required string ImagePath { get; init; }
+    public string? HeatmapPath { get; init; }
     public required float Score { get; init; }
     public required string Label { get; init; }
     public required string ElapsedText { get; init; }
-    public string? PreviewPath { get; init; }
 }
 
 public sealed class MainViewModel : INotifyPropertyChanged
@@ -37,7 +37,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _inferSingleImage = true;
     private string _inferTimeText = "总耗时: -";
     private string _inferSummary = string.Empty;
-    private string? _previewImagePath;
+    private string? _previewOriginalPath;
+    private string? _previewHeatmapPath;
     private bool _isBusy;
 
     private string _paramsConfigDir = SettingsStore.DefaultConfigDirectory;
@@ -109,7 +110,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         nameof(CoresetRatio),
         nameof(TargetEmbedDimension),
         nameof(AnomalyThreshold),
-        nameof(UseManualThreshold)
+        nameof(UseManualThreshold),
+        nameof(SelectedDistanceMetric),
+        nameof(UseSimdDistance),
+        nameof(PatchScoreParallelism),
+        nameof(FeatureMapDownscale),
+        nameof(UseApproximateNearestNeighbors),
+        nameof(AnnClusterCount),
+        nameof(AnnProbeClusters),
     ];
 
     public ObservableCollection<BackboneOption> AvailableBackbones { get; } = [];
@@ -308,6 +316,69 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public string InferInputLabel => InferSingleImage ? "图像文件" : "图像目录";
 
+    public string SelectedDistanceMetric
+    {
+        get => _settings.DistanceMetric.ToString();
+        set
+        {
+            if (Enum.TryParse<DistanceMetric>(value, out var metric) && _settings.DistanceMetric != metric)
+            {
+                _settings.DistanceMetric = metric;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    public bool UseSimdDistance
+    {
+        get => _settings.UseSimdDistance;
+        set
+        {
+            if (_settings.UseSimdDistance != value)
+            {
+                _settings.UseSimdDistance = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    public string PatchScoreParallelism
+    {
+        get => _settings.PatchScoreParallelism.ToString();
+        set => UpdateIntSetting(value, v => _settings.PatchScoreParallelism = v, nameof(PatchScoreParallelism));
+    }
+
+    public string FeatureMapDownscale
+    {
+        get => _settings.FeatureMapDownscale.ToString();
+        set => UpdateIntSetting(value, v => _settings.FeatureMapDownscale = v, nameof(FeatureMapDownscale));
+    }
+
+    public bool UseApproximateNearestNeighbors
+    {
+        get => _settings.UseApproximateNearestNeighbors;
+        set
+        {
+            if (_settings.UseApproximateNearestNeighbors != value)
+            {
+                _settings.UseApproximateNearestNeighbors = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    public string AnnClusterCount
+    {
+        get => _settings.AnnClusterCount.ToString();
+        set => UpdateIntSetting(value, v => _settings.AnnClusterCount = v, nameof(AnnClusterCount));
+    }
+
+    public string AnnProbeClusters
+    {
+        get => _settings.AnnProbeClusters.ToString();
+        set => UpdateIntSetting(value, v => _settings.AnnProbeClusters = v, nameof(AnnProbeClusters));
+    }
+
     public bool SaveHeatmap
     {
         get => _settings.SaveHeatmap;
@@ -333,10 +404,35 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set => SetField(ref _inferSummary, value);
     }
 
-    public string? PreviewImagePath
+    public string? PreviewOriginalPath
     {
-        get => _previewImagePath;
-        set => SetField(ref _previewImagePath, value);
+        get => _previewOriginalPath;
+        set => SetField(ref _previewOriginalPath, value);
+    }
+
+    public string? PreviewHeatmapPath
+    {
+        get => _previewHeatmapPath;
+        set
+        {
+            if (SetField(ref _previewHeatmapPath, value))
+                OnPropertyChanged(nameof(HasPreviewHeatmap));
+        }
+    }
+
+    public bool HasPreviewHeatmap =>
+        !string.IsNullOrWhiteSpace(_previewHeatmapPath) && File.Exists(_previewHeatmapPath);
+
+    public void SetPreviewFromRow(PredictionRowViewModel row)
+    {
+        PreviewOriginalPath = row.ImagePath;
+        PreviewHeatmapPath = row.HeatmapPath;
+    }
+
+    public void ClearPreview()
+    {
+        PreviewOriginalPath = null;
+        PreviewHeatmapPath = null;
     }
 
     public bool IsBusy
@@ -1009,6 +1105,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _settings.InferenceBatchSize = settings.InferenceBatchSize;
             _settings.PreprocessParallelism = settings.PreprocessParallelism;
             _settings.SaveHeatmap = settings.SaveHeatmap;
+            _settings.DistanceMetric = settings.DistanceMetric;
+            _settings.UseSimdDistance = settings.UseSimdDistance;
+            _settings.PatchScoreParallelism = settings.PatchScoreParallelism;
+            _settings.FeatureMapDownscale = settings.FeatureMapDownscale;
+            _settings.UseApproximateNearestNeighbors = settings.UseApproximateNearestNeighbors;
+            _settings.AnnClusterCount = settings.AnnClusterCount;
+            _settings.AnnProbeClusters = settings.AnnProbeClusters;
             settings.NormalizeModelOutputDir();
             _settings.ModelOutputDir = settings.ModelOutputDir;
             _settings.SyncBackbonePath();
@@ -1038,6 +1141,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(AnomalyThreshold));
             OnPropertyChanged(nameof(UseManualThreshold));
             OnPropertyChanged(nameof(SaveHeatmap));
+            OnPropertyChanged(nameof(SelectedDistanceMetric));
+            OnPropertyChanged(nameof(UseSimdDistance));
+            OnPropertyChanged(nameof(PatchScoreParallelism));
+            OnPropertyChanged(nameof(FeatureMapDownscale));
+            OnPropertyChanged(nameof(UseApproximateNearestNeighbors));
+            OnPropertyChanged(nameof(AnnClusterCount));
+            OnPropertyChanged(nameof(AnnProbeClusters));
             OnPropertyChanged(nameof(BackboneOnnxPath));
             UpdateBackboneUi();
             _isProfileDirty = false;
@@ -1145,7 +1255,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         IsBusy = true;
         Predictions.Clear();
-        PreviewImagePath = null;
+        ClearPreview();
         InferTimeText = "总耗时: 运行中...";
         InferSummary = string.Empty;
 
@@ -1170,10 +1280,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 {
                     FileName = Path.GetFileName(item.Result.ImagePath),
                     ImagePath = item.Result.ImagePath,
+                    HeatmapPath = item.Result.HeatmapPath,
                     Score = item.Result.AnomalyScore,
                     Label = item.Result.Label,
                     ElapsedText = FormatElapsed(item.Elapsed),
-                    PreviewPath = item.Result.HeatmapPath ?? item.Result.ImagePath
                 });
             }
 
@@ -1185,7 +1295,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             InferSummary =
                 $"Backbone={BackboneCatalog.Get(SelectedBackboneId).DisplayName} | 完成 {batch.Items.Count} 张 | NG={ngCount} | OK={batch.Items.Count - ngCount} | {thresholdHint}" +
                 (config.SaveHeatmap ? "" : " | 仅结果（无热力图）");
-            PreviewImagePath = Predictions.LastOrDefault()?.PreviewPath;
+            if (Predictions.LastOrDefault() is { } last)
+                SetPreviewFromRow(last);
         }
         catch (Exception ex)
         {
@@ -1236,6 +1347,36 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (!float.TryParse(AnomalyThreshold, out _))
         {
             error = "异常阈值必须是有效数字。";
+            return false;
+        }
+
+        if (!Enum.TryParse<DistanceMetric>(SelectedDistanceMetric, out _))
+        {
+            error = "距离度量必须是 Euclidean 或 SquaredEuclidean。";
+            return false;
+        }
+
+        if (!int.TryParse(PatchScoreParallelism, out var patchParallelism) || patchParallelism < 0)
+        {
+            error = "Patch 并行度必须是非负整数（0 表示自动）。";
+            return false;
+        }
+
+        if (!int.TryParse(FeatureMapDownscale, out var downscale) || downscale < 1 || downscale > 8)
+        {
+            error = "特征图降采样倍数必须是 1~8 的整数。";
+            return false;
+        }
+
+        if (!int.TryParse(AnnClusterCount, out var annClusters) || annClusters < 2)
+        {
+            error = "ANN 聚类数至少为 2。";
+            return false;
+        }
+
+        if (!int.TryParse(AnnProbeClusters, out var annProbes) || annProbes < 1)
+        {
+            error = "ANN 探测簇数至少为 1。";
             return false;
         }
 

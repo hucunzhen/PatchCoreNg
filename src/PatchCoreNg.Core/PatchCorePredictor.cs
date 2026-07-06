@@ -17,6 +17,7 @@ public sealed class PatchCorePredictor : IDisposable
     private readonly FeatureExtractor _extractor;
     private readonly MemoryBank _memoryBank;
     private readonly PatchCoreModel _model;
+    private readonly KnnsSearchOptions _knnsOptions;
 
     public string ExecutionProvider => _extractor.ExecutionProvider;
     internal FeatureExtractor Extractor => _extractor;
@@ -32,15 +33,16 @@ public sealed class PatchCorePredictor : IDisposable
             NumNeighbors = model.NumNeighbors,
             CoresetRatio = model.CoresetRatio,
             TargetEmbedDimension = model.TargetEmbedDimension,
-            AnomalyThreshold = model.AnomalyThreshold
+            AnomalyThreshold = model.AnomalyThreshold,
         };
 
+        _knnsOptions = KnnsSearchOptions.FromModel(model, _config);
         _extractor = new FeatureExtractor(
             _config.BackboneOnnxPath,
             _config.ImageSize,
             _config.UseGpu,
             _config.GpuDeviceId);
-        _memoryBank = new MemoryBank(model.MemoryBank);
+        _memoryBank = new MemoryBank(model.MemoryBank, _knnsOptions);
     }
 
     public PredictionResult Predict(string imagePath, string? outputDir = null)
@@ -55,28 +57,24 @@ public sealed class PatchCorePredictor : IDisposable
         FeatureMap featureMap,
         string? outputDir = null)
     {
-        var patches = LocalAggregator.Aggregate(featureMap, _config.PatchSize);
-        if (patches.Length == 0)
-        {
-            throw new InvalidOperationException(
-                $"特征图为空 ({featureMap.Channels}x{featureMap.Height}x{featureMap.Width})，" +
-                "请检查 backbone ONNX 与训练时是否一致。");
-        }
-
-        var (patchDistances, imageScore, _) = _memoryBank.Score(patches, _config.NumNeighbors);
-        return CreateResult(imagePath, featureMap, imageScore, patchDistances, outputDir);
+        var detail = KnnsFeatureHelper.ScoreFeatureMap(
+            _memoryBank,
+            featureMap,
+            _config.PatchSize,
+            _config.NumNeighbors,
+            _knnsOptions);
+        return CreateResult(imagePath, detail, outputDir);
     }
 
     public PredictionResult CreateResult(
         string imagePath,
-        FeatureMap featureMap,
         FeatureMapScoreDetail scoreDetail,
         string? outputDir = null) =>
-        CreateResult(imagePath, featureMap, scoreDetail.ImageScore, scoreDetail.PatchDistances, outputDir);
+        CreateResult(imagePath, scoreDetail.ScoredFeatureMap, scoreDetail.ImageScore, scoreDetail.PatchDistances, outputDir);
 
     public PredictionResult CreateResult(
         string imagePath,
-        FeatureMap featureMap,
+        FeatureMap scoredFeatureMap,
         float imageScore,
         float[] patchDistances,
         string? outputDir = null)
@@ -94,7 +92,14 @@ public sealed class PatchCorePredictor : IDisposable
         if (_config.SaveHeatmap && !string.IsNullOrWhiteSpace(outputDir))
         {
             Directory.CreateDirectory(outputDir);
-            heatmapPath = SaveHeatmap(imagePath, featureMap, patchDistances, outputDir, imageScore, label);
+            heatmapPath = AnomalyMapRenderer.SaveThresholdHeatmap(
+                imagePath,
+                scoredFeatureMap,
+                patchDistances,
+                outputDir,
+                GetThreshold(),
+                imageScore,
+                label);
         }
 
         return new PredictionResult
@@ -103,87 +108,8 @@ public sealed class PatchCorePredictor : IDisposable
             AnomalyScore = imageScore,
             IsAnomaly = isAnomaly,
             Label = label,
-            HeatmapPath = heatmapPath
+            HeatmapPath = heatmapPath,
         };
-    }
-
-    private string SaveHeatmap(
-        string imagePath,
-        FeatureMap featureMap,
-        float[] patchScores,
-        string outputDir,
-        float score,
-        string label)
-    {
-        var threshold = GetThreshold();
-
-        using var scoreMap = new Mat(featureMap.Height, featureMap.Width, MatType.CV_32FC1);
-        for (var y = 0; y < featureMap.Height; y++)
-        {
-            for (var x = 0; x < featureMap.Width; x++)
-            {
-                var idx = y * featureMap.Width + x;
-                scoreMap.Set(y, x, patchScores[idx]);
-            }
-        }
-
-        using var scoreFull = new Mat();
-        Cv2.Resize(
-            scoreMap,
-            scoreFull,
-            new Size(_config.ImageSize, _config.ImageSize),
-            0,
-            0,
-            InterpolationFlags.Cubic);
-
-        var maxAbove = threshold;
-        for (var y = 0; y < scoreFull.Rows; y++)
-        {
-            for (var x = 0; x < scoreFull.Cols; x++)
-            {
-                var value = scoreFull.At<float>(y, x);
-                if (value > threshold && value > maxAbove)
-                    maxAbove = value;
-            }
-        }
-
-        using var original = Cv2.ImRead(imagePath, ImreadModes.Color);
-        using var resized = new Mat();
-        Cv2.Resize(original, resized, new Size(_config.ImageSize, _config.ImageSize));
-
-        using var output = resized.Clone();
-
-        if (maxAbove > threshold)
-        {
-            using var highlightNorm = new Mat(scoreFull.Size(), MatType.CV_32FC1, Scalar.All(0));
-            var span = maxAbove - threshold;
-            for (var y = 0; y < scoreFull.Rows; y++)
-            {
-                for (var x = 0; x < scoreFull.Cols; x++)
-                {
-                    var value = scoreFull.At<float>(y, x);
-                    if (value > threshold)
-                        highlightNorm.Set(y, x, (value - threshold) / span);
-                }
-            }
-
-            using var mask = new Mat();
-            Cv2.Compare(scoreFull, new Scalar(threshold), mask, CmpType.GT);
-
-            using var highlightU8 = new Mat();
-            highlightNorm.ConvertTo(highlightU8, MatType.CV_8UC1, 255.0);
-            using var colored = new Mat();
-            Cv2.ApplyColorMap(highlightU8, colored, ColormapTypes.Jet);
-
-            using var blended = new Mat();
-            Cv2.AddWeighted(resized, 0.55, colored, 0.45, 0, blended);
-            blended.CopyTo(output, mask);
-        }
-
-        var fileName = $"{Path.GetFileNameWithoutExtension(imagePath)}_{label}_{score:F4}.jpg";
-        var savePath = Path.Combine(outputDir, fileName);
-        Cv2.ImWrite(savePath, output);
-        return savePath;
     }
 
     public void Dispose() => _extractor.Dispose();

@@ -4,9 +4,9 @@
         xmlns:local="clr-namespace:PatchCoreNg.App"
         Title="PatchCore-NG 工业异常检测"
         Height="800"
-        Width="1100"
+        Width="1200"
         MinHeight="640"
-        MinWidth="960"
+        MinWidth="1000"
         WindowStartupLocation="CenterScreen">
     <Window.Resources>
         <local:PathToImageSourceConverter x:Key="PathToImageSourceConverter"/>
@@ -41,6 +41,16 @@
             <Setter Property="Padding" Value="10,8"/>
         </Style>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <Style x:Key="PreviewSplitter" TargetType="GridSplitter">
+            <Setter Property="Width" Value="6"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="VerticalAlignment" Value="Stretch"/>
+            <Setter Property="Background" Value="#D8DEE6"/>
+            <Setter Property="ShowsPreview" Value="False"/>
+            <Setter Property="ResizeDirection" Value="Columns"/>
+            <Setter Property="ResizeBehavior" Value="PreviousAndNext"/>
+            <Setter Property="Cursor" Value="SizeWE"/>
+        </Style>
     </Window.Resources>
 
     <Grid Margin="16">
@@ -340,6 +350,55 @@
                                       Margin="16,0,0,0" VerticalAlignment="Center"/>
                         </Grid>
 
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="kNN 加速" Margin="0,4,0,0"/>
+
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ToolTip>
+                                <ToolTip>
+                                    <TextBlock TextWrapping="Wrap"
+                                               Text="距离度量：SquaredEuclidean 更快，训练/推理需一致并重新调参。&#x0a;SIMD：向量化算距离。&#x0a;Patch 并行：单张图内 patch 打分并行度，0=自动。&#x0a;特征图降采样：2/4 可减少 patch 数加速 kNN，热力图更粗。&#x0a;近似 ANN：按聚类探测最近邻，Memory Bank 很大时更快。"/>
+                                </ToolTip>
+                            </Grid.ToolTip>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="160"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="80"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="距离度量"/>
+                            <ComboBox Grid.Column="1" Height="32"
+                                      SelectedValue="{Binding SelectedDistanceMetric}"
+                                      SelectedValuePath="Content">
+                                <ComboBoxItem Content="SquaredEuclidean"/>
+                                <ComboBoxItem Content="Euclidean"/>
+                            </ComboBox>
+                            <CheckBox Grid.Column="2" Content="SIMD" IsChecked="{Binding UseSimdDistance}"
+                                      Margin="12,0,0,0" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="3" Style="{StaticResource FieldLabel}" Text="Patch并行" Margin="8,0,8,0"/>
+                            <TextBox Grid.Column="4" Height="32" VerticalContentAlignment="Center" Text="{Binding PatchScoreParallelism}"/>
+                        </Grid>
+
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="80"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="80"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="80"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="特征降采样"/>
+                            <TextBox Grid.Column="1" Height="32" VerticalContentAlignment="Center" Text="{Binding FeatureMapDownscale}"/>
+                            <CheckBox Grid.Column="2" Content="近似 ANN" IsChecked="{Binding UseApproximateNearestNeighbors}"
+                                      Margin="12,0,0,0" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="3" Style="{StaticResource FieldLabel}" Text="聚类数" Margin="8,0,8,0"/>
+                            <TextBox Grid.Column="4" Height="32" VerticalContentAlignment="Center" Text="{Binding AnnClusterCount}"/>
+                            <TextBlock Grid.Column="5" Style="{StaticResource FieldLabel}" Text="探测簇" Margin="8,0,8,0"/>
+                            <TextBox Grid.Column="6" Height="32" VerticalContentAlignment="Center" Text="{Binding AnnProbeClusters}"/>
+                        </Grid>
+
                         <TextBlock Style="{StaticResource SectionTitle}" Text="3. 其他" Margin="0,8,0,0"/>
 
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
@@ -394,11 +453,12 @@
             <TabItem Header="推理">
                 <Grid Margin="12">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="320"/>
+                        <ColumnDefinition Width="*" MinWidth="360"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="560" MinWidth="320" MaxWidth="1600"/>
                     </Grid.ColumnDefinitions>
 
-                    <Grid Grid.Column="0" Margin="0,0,12,0">
+                    <Grid Grid.Column="0" Margin="0,0,4,0">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
@@ -441,7 +501,7 @@
                         </Grid>
 
                         <CheckBox Grid.Row="4" Content="生成热力图" IsChecked="{Binding SaveHeatmap}"
-                                  Margin="116,0,0,8" ToolTip="开启后仅高亮超过判定阈值的区域；关闭则只输出分数与 OK/NG，更快"/>
+                                  Margin="116,0,0,8" ToolTip="在原图尺寸上叠加高亮（仅超阈值区域）；位置与推理用的拉伸缩放一致"/>
 
                         <Grid Grid.Row="5" Margin="0,0,0,12">
                             <Grid.ColumnDefinitions>
@@ -480,38 +540,79 @@
                         </DataGrid>
                     </Grid>
 
-                    <GroupBox Grid.Column="1" Header="预览">
-                        <Grid>
-                            <Image Stretch="Uniform">
-                                <Image.Source>
-                                    <Binding Path="PreviewImagePath" Converter="{StaticResource PathToImageSourceConverter}"/>
-                                </Image.Source>
-                                <Image.Style>
-                                    <Style TargetType="Image">
-                                        <Style.Triggers>
-                                            <Trigger Property="Source" Value="{x:Null}">
-                                                <Setter Property="Visibility" Value="Collapsed"/>
-                                            </Trigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Image.Style>
-                            </Image>
-                            <TextBlock Text="推理完成后显示热力图或原图"
-                                       HorizontalAlignment="Center"
-                                       VerticalAlignment="Center"
-                                       Foreground="#999">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="Visibility" Value="Collapsed"/>
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding PreviewImagePath}" Value="{x:Null}">
-                                                <Setter Property="Visibility" Value="Visible"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
-                        </Grid>
+                    <GridSplitter Grid.Column="1" Style="{StaticResource PreviewSplitter}"/>
+
+                    <GroupBox Grid.Column="2" Header="预览（原图 / 热力图）" Padding="8,8,8,4">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel>
+                                <TextBlock Text="原图" FontWeight="SemiBold" Margin="0,0,0,4" Foreground="#444"/>
+                                <Border BorderBrush="#DDD" BorderThickness="1" Background="#111" Margin="0,0,0,8" MinHeight="140">
+                                    <Grid>
+                                        <Viewbox Stretch="Uniform" MaxHeight="480">
+                                            <Image Source="{Binding PreviewOriginalPath, Converter={StaticResource PathToImageSourceConverter}}">
+                                                <Image.Style>
+                                                    <Style TargetType="Image">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding PreviewOriginalPath}" Value="{x:Null}">
+                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Image.Style>
+                                            </Image>
+                                        </Viewbox>
+                                        <TextBlock Text="点击结果行查看原图" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   Foreground="#999" Margin="8">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding PreviewOriginalPath}" Value="{x:Null}">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </Grid>
+                                </Border>
+
+                                <TextBlock Text="热力图叠加" FontWeight="SemiBold" Margin="0,0,0,4" Foreground="#444"/>
+                                <Border BorderBrush="#DDD" BorderThickness="1" Background="#111" MinHeight="140">
+                                    <Grid>
+                                        <Viewbox Stretch="Uniform" MaxHeight="480">
+                                            <Image Source="{Binding PreviewHeatmapPath, Converter={StaticResource PathToImageSourceConverter}}">
+                                                <Image.Style>
+                                                    <Style TargetType="Image">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding HasPreviewHeatmap}" Value="False">
+                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Image.Style>
+                                            </Image>
+                                        </Viewbox>
+                                        <TextBlock Text="未生成热力图" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   Foreground="#999" Margin="8">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding HasPreviewHeatmap}" Value="False">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </Grid>
+                                </Border>
+
+                                <TextBlock Text="点击左侧列表切换；拖动中间分隔条调整预览宽度"
+                                           TextWrapping="Wrap" Foreground="#888" FontSize="11" Margin="0,4,0,0"/>
+                            </StackPanel>
+                        </ScrollViewer>
                     </GroupBox>
                 </Grid>
             </TabItem>

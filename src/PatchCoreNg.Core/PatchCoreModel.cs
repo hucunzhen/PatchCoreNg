@@ -15,6 +15,13 @@ public sealed class PatchCoreModel
     public int FeatureWidth { get; init; }
     public float AnomalyThreshold { get; init; }
     public float[][] MemoryBank { get; init; } = [];
+    public DistanceMetric DistanceMetric { get; init; } = DistanceMetric.Euclidean;
+    public bool UseSimdDistance { get; init; } = true;
+    public int PatchScoreParallelism { get; init; }
+    public int FeatureMapDownscale { get; init; } = 1;
+    public bool UseApproximateNearestNeighbors { get; init; }
+    public int AnnClusterCount { get; init; } = 32;
+    public int AnnProbeClusters { get; init; } = 4;
 
     public static PatchCoreModel Create(
         PatchCoreConfig config,
@@ -33,7 +40,14 @@ public sealed class PatchCoreModel
             FeatureHeight = referenceMap.Height,
             FeatureWidth = referenceMap.Width,
             AnomalyThreshold = anomalyThreshold,
-            MemoryBank = memoryBank
+            MemoryBank = memoryBank,
+            DistanceMetric = config.DistanceMetric,
+            UseSimdDistance = config.UseSimdDistance,
+            PatchScoreParallelism = config.PatchScoreParallelism,
+            FeatureMapDownscale = config.FeatureMapDownscale,
+            UseApproximateNearestNeighbors = config.UseApproximateNearestNeighbors,
+            AnnClusterCount = config.AnnClusterCount,
+            AnnProbeClusters = config.AnnProbeClusters,
         };
     }
 
@@ -82,6 +96,13 @@ public sealed class PatchCoreModel
         FeatureHeight = FeatureHeight,
         FeatureWidth = FeatureWidth,
         AnomalyThreshold = threshold,
-        MemoryBank = MemoryBank
+        MemoryBank = MemoryBank,
+        DistanceMetric = DistanceMetric,
+        UseSimdDistance = UseSimdDistance,
+        PatchScoreParallelism = PatchScoreParallelism,
+        FeatureMapDownscale = FeatureMapDownscale,
+        UseApproximateNearestNeighbors = UseApproximateNearestNeighbors,
+        AnnClusterCount = AnnClusterCount,
+        AnnProbeClusters = AnnProbeClusters,
     };
 }

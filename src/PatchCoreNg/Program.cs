@@ -113,6 +113,8 @@ internal static class Program
         Console.WriteLine($"模型: {modelPath}");
         Console.WriteLine($"输入: {input}");
         Console.WriteLine($"热力图: {(config.SaveHeatmap ? "开" : "关")}");
+        Console.WriteLine(
+            $"kNN: 距离={config.DistanceMetric}, SIMD={config.UseSimdDistance}, Patch并行={config.PatchScoreParallelism}, 降采样={config.FeatureMapDownscale}x, ANN={config.UseApproximateNearestNeighbors}");
 
         var model = PatchCoreModel.Load(modelPath);
         var inferenceConfig = InferenceConfig.MergeForInference(model, config, modelPath);
@@ -171,9 +173,22 @@ internal static class Program
             TargetEmbedDimension = int.Parse(options.GetValueOrDefault("embed-dim", "1024")),
             AnomalyThreshold = float.Parse(options.GetValueOrDefault("threshold", "0.5")),
             SaveHeatmap = !options.TryGetValue("no-heatmap", out var noHeatmap)
-                || string.Equals(noHeatmap, "false", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(noHeatmap, "false", StringComparison.OrdinalIgnoreCase),
+            DistanceMetric = ParseDistanceMetric(options.GetValueOrDefault("distance-metric", "SquaredEuclidean")),
+            UseSimdDistance = !options.TryGetValue("no-simd", out var noSimd)
+                || string.Equals(noSimd, "false", StringComparison.OrdinalIgnoreCase),
+            PatchScoreParallelism = int.Parse(options.GetValueOrDefault("patch-parallelism", "0")),
+            FeatureMapDownscale = int.Parse(options.GetValueOrDefault("feature-downscale", "1")),
+            UseApproximateNearestNeighbors = options.ContainsKey("ann"),
+            AnnClusterCount = int.Parse(options.GetValueOrDefault("ann-clusters", "32")),
+            AnnProbeClusters = int.Parse(options.GetValueOrDefault("ann-probes", "4")),
         };
     }
+
+    private static DistanceMetric ParseDistanceMetric(string value) =>
+        Enum.TryParse<DistanceMetric>(value, ignoreCase: true, out var metric)
+            ? metric
+            : throw new ArgumentException($"无效距离度量: {value}，可选 Euclidean / SquaredEuclidean");
 
     private static Dictionary<string, string> ParseOptions(string[] args)
     {
@@ -240,6 +255,13 @@ internal static class Program
               --coreset    coreset 采样比例 (默认 0.1)
               --threshold  异常阈值 (默认 0.5)
               --no-heatmap 仅输出分数与判定，不生成热力图
+              --distance-metric  距离度量 Euclidean / SquaredEuclidean (默认 SquaredEuclidean)
+              --no-simd      禁用 SIMD 向量化距离 (默认启用)
+              --patch-parallelism  单图 patch kNN 并行度，0=自动 (默认 0)
+              --feature-downscale  特征图降采样倍数 1~8 (默认 1，不降采样)
+              --ann          启用近似最近邻索引 (聚类探测)
+              --ann-clusters ANN 聚类数 (默认 32)
+              --ann-probes   ANN 探测簇数 (默认 4)
 
             首次使用:
               python scripts/export_backbone.py --all

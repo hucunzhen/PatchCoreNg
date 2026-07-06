@@ -45,12 +45,14 @@ public sealed class PatchCoreTrainer : IDisposable
         var coreset = CoresetSampler.Sample(allPatches.ToArray(), _config.CoresetRatio, log, "训练-Coreset采样");
 
         var referenceMap = featureMaps[0];
-        var memoryBank = new MemoryBank(coreset);
+        var knnsOptions = KnnsSearchOptions.FromConfig(_config);
+        var memoryBank = new MemoryBank(coreset, knnsOptions);
         var trainScores = FeaturePipeline.ScoreFeatureMaps(
             memoryBank,
             featureMaps,
             _config.PatchSize,
             _config.NumNeighbors,
+            knnsOptions,
             _config.PreprocessParallelism,
             log,
             "训练-打分");

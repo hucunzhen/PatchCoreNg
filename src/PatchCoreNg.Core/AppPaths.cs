@@ -50,6 +50,13 @@ public static class AppPaths
             InferenceBatchSize = config.InferenceBatchSize,
             PreprocessParallelism = config.PreprocessParallelism,
             SaveHeatmap = config.SaveHeatmap,
+            DistanceMetric = config.DistanceMetric,
+            UseSimdDistance = config.UseSimdDistance,
+            PatchScoreParallelism = config.PatchScoreParallelism,
+            FeatureMapDownscale = config.FeatureMapDownscale,
+            UseApproximateNearestNeighbors = config.UseApproximateNearestNeighbors,
+            AnnClusterCount = config.AnnClusterCount,
+            AnnProbeClusters = config.AnnProbeClusters,
         };
     }
 }

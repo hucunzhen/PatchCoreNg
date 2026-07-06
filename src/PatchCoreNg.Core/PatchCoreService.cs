@@ -373,7 +373,6 @@ public sealed class PatchCoreService
             InferenceConfig.MergeForInference(model, config, resolvedModelPath));
 
         var heatmapOutputDir = resolvedConfig.SaveHeatmap ? resolvedOutputDir : null;
-        var judgeStep = resolvedConfig.SaveHeatmap ? "推理-判定与热力图" : "推理-判定";
 
         if (config is not null &&
             (config.ImageSize != model.ImageSize ||
@@ -393,111 +392,40 @@ public sealed class PatchCoreService
 
         log.Info(
             "批量推理",
-            $"{pathList.Count} 张 | 设备={predictor.ExecutionProvider} | batch={FeaturePipeline.ResolveBatchSize(resolvedConfig.InferenceBatchSize)} | kNN并行={FeaturePipeline.ResolvePreprocessParallelism(resolvedConfig.PreprocessParallelism)} | 热力图={(resolvedConfig.SaveHeatmap ? "开" : "关")}");
-
-
-
-        var tensors = FeaturePipeline.PreprocessImages(
-
-            pathList,
-
-            resolvedConfig.ImageSize,
-
-            resolvedConfig.PreprocessParallelism,
-
-            log,
-
-            "推理-预处理");
-
-        var featureMaps = FeaturePipeline.ExtractFeatureMaps(
-
-            predictor.Extractor,
-
-            tensors,
-
-            resolvedConfig.InferenceBatchSize,
-
-            log,
-
-            "推理-特征提取");
-
-        var scoreDetails = FeaturePipeline.ScoreFeatureMapsDetailed(
-            predictor.MemoryBank,
-            featureMaps,
-            resolvedConfig.PatchSize,
-            resolvedConfig.NumNeighbors,
-            resolvedConfig.PreprocessParallelism,
-            log,
-            "推理-kNN");
+            $"{pathList.Count} 张 | 逐张处理 | 设备={predictor.ExecutionProvider} | kNN并行={FeaturePipeline.ResolvePreprocessParallelism(resolvedConfig.PreprocessParallelism)} | 热力图={(resolvedConfig.SaveHeatmap ? "开" : "关")}");
 
         if (heatmapOutputDir is not null)
             Directory.CreateDirectory(heatmapOutputDir);
 
-        var parallelism = FeaturePipeline.ResolvePreprocessParallelism(resolvedConfig.PreprocessParallelism);
+        var items = new List<TimedPredictionResult>(pathList.Count);
 
-        var items = log.Run(
-            judgeStep,
-            () =>
+        for (var i = 0; i < pathList.Count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var imagePath = pathList[i];
+            var itemStopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var result = predictor.Predict(imagePath, heatmapOutputDir);
+            itemStopwatch.Stop();
+
+            items.Add(new TimedPredictionResult
             {
-                var results = new TimedPredictionResult[pathList.Count];
-                var watch = System.Diagnostics.Stopwatch.StartNew();
-                var completedCount = 0;
-
-                Parallel.For(0, pathList.Count, new ParallelOptions
-                {
-                    MaxDegreeOfParallelism = parallelism,
-                    CancellationToken = cancellationToken,
-                }, i =>
-                {
-                    var itemStopwatch = System.Diagnostics.Stopwatch.StartNew();
-                    var result = predictor.CreateResult(
-                        pathList[i],
-                        featureMaps[i],
-                        scoreDetails[i],
-                        heatmapOutputDir);
-                    itemStopwatch.Stop();
-
-                    results[i] = new TimedPredictionResult
-                    {
-                        Result = result,
-                        Elapsed = itemStopwatch.Elapsed
-                    };
-
-                    var done = Interlocked.Increment(ref completedCount);
-                    if (log != null && (done == pathList.Count || done % 64 == 0))
-                        log.Info(judgeStep, $"进度 {done}/{pathList.Count}");
-                });
-
-                watch.Stop();
-                return results.ToList();
-            },
-
-            $"{pathList.Count} 张, 并行={parallelism}",
-
-            results =>
-
-            {
-
-                var ngCount = results.Count(x => x.Result.IsAnomaly);
-
-                return $"NG={ngCount}, OK={results.Count - ngCount}";
-
+                Result = result,
+                Elapsed = itemStopwatch.Elapsed,
             });
 
+            log.Info(
+                "推理",
+                $"{i + 1}/{pathList.Count} {Path.GetFileName(imagePath)} score={result.AnomalyScore:F4} {result.Label} 耗时={StepProgress.FormatElapsed(itemStopwatch.Elapsed)}");
+        }
 
-
-        log.Complete($"推理结束 | {pathList.Count} 张");
-
-
+        var ngCount = items.Count(x => x.Result.IsAnomaly);
+        log.Complete($"推理结束 | {pathList.Count} 张 | NG={ngCount}, OK={pathList.Count - ngCount}");
 
         return new PredictBatchResult
-
         {
-
             Items = items,
-
-            TotalElapsed = log.TotalElapsed
-
+            TotalElapsed = log.TotalElapsed,
         };
 
     }

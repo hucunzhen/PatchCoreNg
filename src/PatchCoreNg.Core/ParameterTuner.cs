@@ -166,7 +166,7 @@ public static class ParameterTuner
 
             config.GpuDeviceId);
 
-        var memoryBank = new MemoryBank(model.MemoryBank);
+        var memoryBank = new MemoryBank(model.MemoryBank, KnnsSearchOptions.FromModel(model, config));
 
         return FeaturePipeline.ScoreImages(extractor, memoryBank, paths, config, numNeighbors, log, prefix);
 

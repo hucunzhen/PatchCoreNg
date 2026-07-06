@@ -34,6 +34,6 @@ public partial class MainWindow : Window
         if (sender is not DataGrid grid || grid.SelectedItem is not PredictionRowViewModel row)
             return;
 
-        _viewModel.PreviewImagePath = row.PreviewPath;
+        _viewModel.SetPreviewFromRow(row);
     }
 }

@@ -27,5 +27,12 @@
   "GpuDeviceId": 0,
   "InferenceBatchSize": 8,
   "PreprocessParallelism": 0,
-  "SaveHeatmap": true
+  "SaveHeatmap": true,
+  "DistanceMetric": 1,
+  "UseSimdDistance": true,
+  "PatchScoreParallelism": 0,
+  "FeatureMapDownscale": 1,
+  "UseApproximateNearestNeighbors": false,
+  "AnnClusterCount": 32,
+  "AnnProbeClusters": 4
 }

@@ -17,6 +17,13 @@ public sealed class PatchCoreConfig
     public int InferenceBatchSize { get; init; } = 8;
     public int PreprocessParallelism { get; init; }
     public bool SaveHeatmap { get; init; } = true;
+    public DistanceMetric DistanceMetric { get; init; } = DistanceMetric.SquaredEuclidean;
+    public bool UseSimdDistance { get; init; } = true;
+    public int PatchScoreParallelism { get; init; }
+    public int FeatureMapDownscale { get; init; } = 1;
+    public bool UseApproximateNearestNeighbors { get; init; }
+    public int AnnClusterCount { get; init; } = 32;
+    public int AnnProbeClusters { get; init; } = 4;
 
     public static readonly float[] ImageNetMean = [0.485f, 0.456f, 0.406f];
     public static readonly float[] ImageNetStd = [0.229f, 0.224f, 0.225f];

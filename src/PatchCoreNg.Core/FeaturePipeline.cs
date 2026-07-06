@@ -2,8 +2,6 @@ using System.Diagnostics;
 
 namespace PatchCoreNg;
 
-public readonly record struct FeatureMapScoreDetail(float ImageScore, float[] PatchDistances);
-
 internal static class FeaturePipeline
 {
     public static int ResolvePreprocessParallelism(int configured)
@@ -114,33 +112,41 @@ internal static class FeaturePipeline
         IReadOnlyList<FeatureMap> featureMaps,
         int patchSize,
         int numNeighbors,
+        KnnsSearchOptions knnsOptions,
         int parallelism,
         StepProgress? log = null,
-        string step = "kNN打分")
-    {
-        return ScoreFeatureMapsDetailed(
-                memoryBank,
-                featureMaps,
-                patchSize,
-                numNeighbors,
-                parallelism,
-                log,
-                step)
+        string step = "kNN打分") =>
+        ScoreFeatureMapsDetailed(memoryBank, featureMaps, patchSize, numNeighbors, knnsOptions, parallelism, log, step)
             .Select(d => d.ImageScore)
             .ToList();
-    }
 
-    public static List<FeatureMapScoreDetail> ScoreFeatureMapsDetailed(
+    public static List<float> ScoreFeatureMaps(
         MemoryBank memoryBank,
         IReadOnlyList<FeatureMap> featureMaps,
         int patchSize,
         int numNeighbors,
         int parallelism,
         StepProgress? log = null,
+        string step = "kNN打分") =>
+        ScoreFeatureMaps(memoryBank, featureMaps, patchSize, numNeighbors, new KnnsSearchOptions(), parallelism, log, step);
+
+    public static List<FeatureMapScoreDetail> ScoreFeatureMapsDetailed(
+        MemoryBank memoryBank,
+        IReadOnlyList<FeatureMap> featureMaps,
+        int patchSize,
+        int numNeighbors,
+        KnnsSearchOptions knnsOptions,
+        int parallelism,
+        StepProgress? log = null,
         string step = "kNN打分")
     {
         var degree = ResolvePreprocessParallelism(parallelism);
-        log?.Begin(step, $"{featureMaps.Count} 张, k={numNeighbors}, 并行={degree}");
+        var patchParallel = KnnsSearchOptions.ResolvePatchParallelism(knnsOptions.PatchScoreParallelism);
+        log?.Begin(
+            step,
+            $"{featureMaps.Count} 张, k={numNeighbors}, 图并行={degree}, patch并行={patchParallel}, " +
+            $"距离={knnsOptions.DistanceMetric}, SIMD={knnsOptions.UseSimdDistance}, " +
+            $"降采样={knnsOptions.FeatureMapDownscale}x, ANN={knnsOptions.UseApproximateNearestNeighbors}");
         var watch = Stopwatch.StartNew();
         var results = new FeatureMapScoreDetail[featureMaps.Count];
         var completedCount = 0;
@@ -150,16 +156,12 @@ internal static class FeaturePipeline
             MaxDegreeOfParallelism = degree,
         }, i =>
         {
-            var patches = LocalAggregator.Aggregate(featureMaps[i], patchSize);
-            if (patches.Length == 0)
-            {
-                throw new InvalidOperationException(
-                    $"特征图为空 ({featureMaps[i].Channels}x{featureMaps[i].Height}x{featureMaps[i].Width})，" +
-                    "请检查 backbone ONNX 与训练时是否一致。");
-            }
-
-            var (distances, imageScore, _) = memoryBank.Score(patches, numNeighbors);
-            results[i] = new FeatureMapScoreDetail(imageScore, distances);
+            results[i] = KnnsFeatureHelper.ScoreFeatureMap(
+                memoryBank,
+                featureMaps[i],
+                patchSize,
+                numNeighbors,
+                knnsOptions);
 
             var done = Interlocked.Increment(ref completedCount);
             if (log != null && (done == featureMaps.Count || done % 64 == 0))
@@ -170,6 +172,24 @@ internal static class FeaturePipeline
         log?.End(step, watch.Elapsed, $"{results.Length} 个分数");
         return results.ToList();
     }
+
+    public static List<FeatureMapScoreDetail> ScoreFeatureMapsDetailed(
+        MemoryBank memoryBank,
+        IReadOnlyList<FeatureMap> featureMaps,
+        int patchSize,
+        int numNeighbors,
+        int parallelism,
+        StepProgress? log = null,
+        string step = "kNN打分") =>
+        ScoreFeatureMapsDetailed(
+            memoryBank,
+            featureMaps,
+            patchSize,
+            numNeighbors,
+            new KnnsSearchOptions(),
+            parallelism,
+            log,
+            step);
 
     public static List<float> ScoreImages(
         FeatureExtractor extractor,
@@ -183,6 +203,7 @@ internal static class FeaturePipeline
         if (imagePaths.Count == 0)
             return [];
 
+        var knnsOptions = KnnsSearchOptions.FromConfig(config);
         var tensors = PreprocessImages(
             imagePaths,
             config.ImageSize,
@@ -200,6 +221,7 @@ internal static class FeaturePipeline
             featureMaps,
             config.PatchSize,
             numNeighbors,
+            knnsOptions,
             config.PreprocessParallelism,
             log,
             $"{prefix}-kNN");

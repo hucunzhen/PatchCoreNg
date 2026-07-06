@@ -33,6 +33,13 @@ public sealed class PatchCoreSettings
     public int InferenceBatchSize { get; set; } = 8;
     public int PreprocessParallelism { get; set; }
     public bool SaveHeatmap { get; set; } = true;
+    public DistanceMetric DistanceMetric { get; set; } = DistanceMetric.SquaredEuclidean;
+    public bool UseSimdDistance { get; set; } = true;
+    public int PatchScoreParallelism { get; set; }
+    public int FeatureMapDownscale { get; set; } = 1;
+    public bool UseApproximateNearestNeighbors { get; set; }
+    public int AnnClusterCount { get; set; } = 32;
+    public int AnnProbeClusters { get; set; } = 4;
 
     // 兼容旧版：原为模型文件路径
     public string ModelOutputPath { get; set; } = string.Empty;
@@ -149,7 +156,14 @@ public sealed class PatchCoreSettings
         GpuDeviceId = GpuDeviceId,
         InferenceBatchSize = InferenceBatchSize,
         PreprocessParallelism = PreprocessParallelism,
-        SaveHeatmap = SaveHeatmap
+        SaveHeatmap = SaveHeatmap,
+        DistanceMetric = DistanceMetric,
+        UseSimdDistance = UseSimdDistance,
+        PatchScoreParallelism = PatchScoreParallelism,
+        FeatureMapDownscale = FeatureMapDownscale,
+        UseApproximateNearestNeighbors = UseApproximateNearestNeighbors,
+        AnnClusterCount = AnnClusterCount,
+        AnnProbeClusters = AnnProbeClusters,
     };
 
     public void ApplyFrom(PatchCoreConfig config)
@@ -169,6 +183,13 @@ public sealed class PatchCoreSettings
         InferenceBatchSize = config.InferenceBatchSize;
         PreprocessParallelism = config.PreprocessParallelism;
         SaveHeatmap = config.SaveHeatmap;
+        DistanceMetric = config.DistanceMetric;
+        UseSimdDistance = config.UseSimdDistance;
+        PatchScoreParallelism = config.PatchScoreParallelism;
+        FeatureMapDownscale = config.FeatureMapDownscale;
+        UseApproximateNearestNeighbors = config.UseApproximateNearestNeighbors;
+        AnnClusterCount = config.AnnClusterCount;
+        AnnProbeClusters = config.AnnProbeClusters;
     }
 }
 
