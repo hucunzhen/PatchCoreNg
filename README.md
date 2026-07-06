@@ -38,11 +38,11 @@ dotnet run --project src/PatchCoreNg.App
 ### 4. 命令行
 
 ```bash
-# 训练
-dotnet run --project src/PatchCoreNg -- train --data data/train/good --output models/patchcore_model.json
+# 训练（OK 目录自动随机划分训练/调参，需配合 --ng-data 完成调参）
+dotnet run --project src/PatchCoreNg -- train --data data/ok --ng-data data/ng --output models --profile default
 
 # 推理
-dotnet run --project src/PatchCoreNg -- predict --model models/patchcore_model.json --input data/tune/ng --output output/predictions
+dotnet run --project src/PatchCoreNg -- predict --model models/default/patchcore_model.json --input data/test --output output/predictions
 ```
 
 ## WPF 界面
@@ -65,7 +65,7 @@ dotnet run --project src/PatchCoreNg -- predict --model models/patchcore_model.j
 | **删除** | 删除选中的配置文件 |
 | **刷新** | 重新扫描配置目录 |
 
-- 每套配置独立保存：**样本目录**、**模型输出路径**、**推理模型路径**、Backbone、Coreset、kNN 等
+- 每套配置独立保存：**样本目录**、**模型输出目录**、Backbone、Coreset、kNN 等；推理模型路径随当前配置自动指向 `{输出目录}/{配置名}/patchcore_model.json`
 - 修改未保存时，切换配置会提示是否保存；标题栏旁显示「未保存」标记
 - 程序记住上次使用的配置（`config/.last_profile`），下次启动自动恢复
 
@@ -79,17 +79,38 @@ dotnet run --project src/PatchCoreNg -- predict --model models/patchcore_model.j
 
 ### 1. 样本目录
 
-| 参数 | 必填 | 说明 |
+只需提供 **OK 目录** 和 **NG 目录**，支持两种划分方式：
+
+- **按比例**：OK 按 Memory / 调参 / 测试 三比例划分；NG 按调参比例划分，其余为测试
+- **按固定数量**：OK 指定 Memory、调参张数，**剩余全部用于测试**；NG 指定调参张数，**剩余全部用于测试**
+
+| 子集 | 来源 | 用途 |
 |------|------|------|
-| **OK 训练目录** | 是 | 放置无缺陷的正常产品图像。PatchCore 会从中提取 patch 特征，经 Coreset 采样后写入 Memory Bank，作为后续异常检测的参照基准。建议覆盖典型正常外观变化，数量越多越好。 |
-| **OK 调参目录** | 否 | 用于验证的正常样本，不参与 Memory Bank 构建。与 NG 调参目录一起，自动搜索使 OK/NG 区分效果最好的异常阈值和 kNN 邻居数。留空则使用 OK 训练目录评分（易偏乐观，建议单独准备验证 OK）。 |
-| **NG 调参目录** | 推荐 | 放置已知缺陷/异常样本。系统对 OK 与 NG 样本分别打分，以 F1 最优为准自动确定异常阈值；勾选「自动搜索 kNN」时还会比较 1/3/5/9/15 等邻居数。未填写时跳过 OK/NG 调参，仅使用训练集 P95 作为阈值。 |
+| OK Memory | OK 目录 | 构建 Memory Bank |
+| OK 调参 | OK 目录 | 与 NG 调参集一起搜索阈值 / kNN |
+| OK 测试 | OK 目录 | 独立评估（不参与调参） |
+| NG 调参 | NG 目录 | 与 OK 调参集一起搜索阈值 / kNN |
+| NG 测试 | NG 目录 | 独立评估（不参与调参） |
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| **OK 目录** | — | 全部正常样本（必填） |
+| **NG 目录** | — | 全部异常样本（推荐） |
+| **划分方式** | 按比例 | 「按比例划分」或「按固定数量」 |
+| **OK Memory 比例** | 0.6 | 比例模式 |
+| **OK 调参比例** | 0.2 | 比例模式 |
+| **OK 测试比例** | 0.2 | 比例模式（三者之和自动归一化） |
+| **NG 调参比例** | 0.5 | 比例模式（其余为 NG 测试） |
+| **OK Memory 数量** | 6 | 固定数量模式（张数） |
+| **OK 调参数量** | 2 | 固定数量模式（张数） |
+| **NG 调参数量** | 3 | 固定数量模式（张数） |
+| **划分种子** | 42 | 随机种子，相同配置可复现划分 |
 
 ### 2. 模型与超参数
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| **模型输出** | — | 训练完成后保存的 `.json` 模型文件，包含 Memory Bank、Coreset 参数、调参后的异常阈值和 kNN 设置。推理页可直接加载此文件。 |
+| **模型输出目录** | `models` | 根目录；训练后写入 `{目录}/{配置名}/patchcore_model.json` 与 `config.json` |
 | **Backbone** | WideResNet-50 | 预训练 CNN，负责从图像提取多层 patch 特征。WideResNet-50 为 PatchCore 论文默认；ResNet-18 / MobileNet 更快；WideResNet-101 / ResNet-101 精度更高但更慢。切换 backbone 后须重新训练，且需先导出对应 ONNX。 |
 | **ONNX 路径** | 自动关联 | Backbone 对应的 ONNX 特征提取模型路径。预设 backbone 自动关联 `models/` 目录下文件；选「自定义 ONNX」可手动指定。导出命令：`python scripts/export_backbone.py --backbone <名称>` |
 | **输入尺寸** | 224 | 训练/推理前图像缩放边长（像素），须与 ONNX 导出尺寸一致。 |
@@ -120,23 +141,22 @@ dotnet run --project src/PatchCoreNg -- predict --model models/patchcore_model.j
 | **保存 / 新建 / 删除** | 管理当前配置集合 |
 | **恢复默认** | 将超参数恢复为内置默认值（在训练页「3. 其他」中） |
 
-每套配置包含：样本目录、模型输出路径、推理模型路径、Backbone、Coreset、kNN 等。
+每套配置包含：样本目录、模型输出目录、Backbone、Coreset、kNN 等；推理页模型路径默认 `{输出目录}/{配置名}/patchcore_model.json`。
 
 ### 4. 执行
 
 | 操作 | 说明 |
 |------|------|
-| **训练并调参** | 依次执行：<br>1. 用 OK 训练目录构建 Memory Bank（Coreset 采样）<br>2. 若提供 NG 调参目录，用 OK/NG 样本自动搜索最优阈值与 kNN<br>3. 保存模型到「模型输出」路径<br>耗时取决于样本数量、Coreset 比例和 backbone 大小。 |
+| **训练并调参** | 依次执行：<br>1. 用 OK 训练目录构建 Memory Bank（Coreset 采样）<br>2. 若提供 NG 调参目录，用 OK/NG 样本自动搜索最优阈值与 kNN<br>3. 保存模型与配置到 `{模型输出目录}/{配置名}/`<br>耗时取决于样本数量、Coreset 比例和 backbone 大小。 |
 
 ---
 
-## 调参结果说明
+## 调参与测试结果说明
 
 训练并调参完成后，界面会显示：
 
-- **F1 / 准确率 / 精确率 / 召回率**：基于 OK/NG 调参样本的评估指标
-- **最佳阈值**：自动搜索得到的异常分数分界点
-- **最佳 kNN**：若启用自动搜索，显示选中的邻居数
+- **调参集指标**（F1、准确率等）：基于 OK/NG **调参**子集的评估，用于搜索阈值和 kNN
+- **测试集指标**：基于 OK/NG **测试**子集的独立评估，反映未参与调参的泛化效果
 
 ## 依赖
 

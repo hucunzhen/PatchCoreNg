@@ -15,12 +15,34 @@ public sealed class PatchCoreSettings
     public int TargetEmbedDimension { get; set; } = 1024;
     public float AnomalyThreshold { get; set; } = 0.5f;
     public bool UseManualThreshold { get; set; }
+    public string OkDataPath { get; set; } = string.Empty;
+    public string NgDataPath { get; set; } = string.Empty;
+    public double OkTrainRatio { get; set; } = 0.6;
+    public double OkTuneRatio { get; set; } = 0.2;
+    public double OkTestRatio { get; set; } = 0.2;
+    public double NgTuneRatio { get; set; } = 0.5;
+    public DatasetSplitMode SplitMode { get; set; } = DatasetSplitMode.Ratio;
+    public int OkMemoryCount { get; set; } = 6;
+    public int OkTuneCount { get; set; } = 2;
+    public int NgTuneCount { get; set; } = 3;
+    public int SplitSeed { get; set; } = 42;
+    public string ModelOutputDir { get; set; } = "models";
+    public bool AutoSearchNeighbors { get; set; } = true;
+
+    // 兼容旧版：原为模型文件路径
+    public string ModelOutputPath { get; set; } = string.Empty;
+    public string InferModelPath { get; set; } = string.Empty;
+
+    public string GetModelPathForProfile(string profileName) =>
+        ProfileOutputLayout.GetModelPath(ModelOutputDir, profileName);
+
+    public string GetConfigPathForProfile(string profileName) =>
+        ProfileOutputLayout.GetConfigPath(ModelOutputDir, profileName);
+
+    // 兼容旧版配置文件字段
     public string OkTrainPath { get; set; } = string.Empty;
     public string OkTunePath { get; set; } = string.Empty;
     public string NgTunePath { get; set; } = string.Empty;
-    public string ModelOutputPath { get; set; } = "models/patchcore_model.json";
-    public string InferModelPath { get; set; } = "models/patchcore_model.json";
-    public bool AutoSearchNeighbors { get; set; } = true;
 
     public static PatchCoreSettings CreateDefault()
     {
@@ -28,6 +50,71 @@ public sealed class PatchCoreSettings
         settings.SyncBackbonePath();
         return settings;
     }
+
+    public void NormalizeLegacyPaths()
+    {
+        if (string.IsNullOrWhiteSpace(OkDataPath))
+        {
+            if (!string.IsNullOrWhiteSpace(OkTrainPath))
+                OkDataPath = OkTrainPath;
+            else if (!string.IsNullOrWhiteSpace(OkTunePath))
+                OkDataPath = OkTunePath;
+        }
+
+        if (string.IsNullOrWhiteSpace(NgDataPath) && !string.IsNullOrWhiteSpace(NgTunePath))
+            NgDataPath = NgTunePath;
+
+        NormalizeSplitRatios();
+        NormalizeModelOutputDir();
+    }
+
+    public void NormalizeModelOutputDir()
+    {
+        if (!string.IsNullOrWhiteSpace(ModelOutputDir))
+        {
+            ModelOutputDir = ProfileOutputLayout.NormalizeOutputBaseDir(ModelOutputDir);
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(ModelOutputPath))
+            ModelOutputDir = ProfileOutputLayout.NormalizeOutputBaseDir(ModelOutputPath);
+        else if (!string.IsNullOrWhiteSpace(InferModelPath))
+            ModelOutputDir = ProfileOutputLayout.NormalizeOutputBaseDir(InferModelPath);
+        else
+            ModelOutputDir = "models";
+    }
+
+    public void NormalizeSplitRatios()
+    {
+        var okSum = OkTrainRatio + OkTuneRatio + OkTestRatio;
+        if (okSum <= 0)
+        {
+            OkTrainRatio = 0.6;
+            OkTuneRatio = 0.2;
+            OkTestRatio = 0.2;
+        }
+        else if (Math.Abs(okSum - 1.0) > 0.001)
+        {
+            OkTrainRatio /= okSum;
+            OkTuneRatio /= okSum;
+            OkTestRatio /= okSum;
+        }
+
+        NgTuneRatio = Math.Clamp(NgTuneRatio, 0.05, 0.95);
+    }
+
+    public DatasetSplitOptions ToSplitOptions() => new()
+    {
+        Mode = SplitMode,
+        OkTrainRatio = OkTrainRatio,
+        OkTuneRatio = OkTuneRatio,
+        OkTestRatio = OkTestRatio,
+        NgTuneRatio = NgTuneRatio,
+        OkMemoryCount = OkMemoryCount,
+        OkTuneCount = OkTuneCount,
+        NgTuneCount = NgTuneCount,
+        SplitSeed = SplitSeed
+    };
 
     public void SyncBackbonePath()
     {
@@ -86,8 +173,14 @@ public static class SettingsStore
     {
         Directory.CreateDirectory(configDirectory);
         var path = GetProfilePath(configDirectory, settings.ProfileName);
+        SaveToFile(path, settings);
+    }
+
+    public static void SaveToFile(string filePath, PatchCoreSettings settings)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(filePath) ?? ".");
         var json = JsonSerializer.Serialize(settings, JsonOptions);
-        File.WriteAllText(path, json);
+        File.WriteAllText(filePath, json);
     }
 
     public static PatchCoreSettings Load(string filePath)
@@ -96,6 +189,7 @@ public static class SettingsStore
         var settings = JsonSerializer.Deserialize<PatchCoreSettings>(json)
             ?? throw new InvalidDataException($"无法解析参数配置: {filePath}");
         settings.ProfileName = Path.GetFileNameWithoutExtension(filePath);
+        settings.NormalizeLegacyPaths();
         return settings;
     }
 

@@ -17,6 +17,14 @@ public sealed class PatchCoreTrainer : IDisposable
         if (imagePaths.Count == 0)
             throw new InvalidOperationException($"训练目录中没有图像: {trainDataPath}");
 
+        return Train(imagePaths, progress);
+    }
+
+    public PatchCoreModel Train(IReadOnlyList<string> imagePaths, IProgress<string>? progress = null)
+    {
+        if (imagePaths.Count == 0)
+            throw new InvalidOperationException("训练样本列表为空。");
+
         progress?.Report($"发现 {imagePaths.Count} 张正常样本，开始提取特征...");
 
         var allPatches = new List<float[]>();

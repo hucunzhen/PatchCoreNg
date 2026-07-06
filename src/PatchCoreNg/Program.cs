@@ -33,22 +33,71 @@ internal static class Program
     private static int RunTrain(Dictionary<string, string> options)
     {
         var dataPath = Require(options, "data");
-        var output = options.GetValueOrDefault("output", "models/patchcore_model.json");
+        var output = options.GetValueOrDefault("output", "models");
+        var profile = options.GetValueOrDefault("profile", "default");
         var config = BuildConfig(options);
+        var ngData = options.GetValueOrDefault("ng-data", string.Empty);
+        var splitSeed = int.Parse(options.GetValueOrDefault("split-seed", "42"));
+        var splitMode = options.GetValueOrDefault("split-mode", "ratio").Equals("count", StringComparison.OrdinalIgnoreCase)
+            ? DatasetSplitMode.Count
+            : DatasetSplitMode.Ratio;
+        var splitOptions = splitMode == DatasetSplitMode.Count
+            ? new DatasetSplitOptions
+            {
+                Mode = DatasetSplitMode.Count,
+                OkMemoryCount = int.Parse(options.GetValueOrDefault("ok-memory-count", "6")),
+                OkTuneCount = int.Parse(options.GetValueOrDefault("ok-tune-count", "2")),
+                NgTuneCount = int.Parse(options.GetValueOrDefault("ng-tune-count", "3")),
+                SplitSeed = splitSeed
+            }
+            : new DatasetSplitOptions
+            {
+                Mode = DatasetSplitMode.Ratio,
+                OkTrainRatio = double.Parse(options.GetValueOrDefault("ok-train-ratio", "0.6")),
+                OkTuneRatio = double.Parse(options.GetValueOrDefault("ok-tune-ratio", "0.2")),
+                OkTestRatio = double.Parse(options.GetValueOrDefault("ok-test-ratio", "0.2")),
+                NgTuneRatio = double.Parse(options.GetValueOrDefault("ng-tune-ratio", "0.5")),
+                SplitSeed = splitSeed
+            };
+        var autoSearchNeighbors = !options.TryGetValue("auto-search-neighbors", out var autoSearch)
+            || !string.Equals(autoSearch, "false", StringComparison.OrdinalIgnoreCase);
 
         Console.WriteLine("=== PatchCore-NG 训练 ===");
-        Console.WriteLine($"数据: {dataPath}");
-        Console.WriteLine($"输出: {output}");
+        Console.WriteLine($"OK 数据: {dataPath}");
+        if (!string.IsNullOrWhiteSpace(ngData))
+            Console.WriteLine($"NG 数据: {ngData}");
+        Console.WriteLine($"输出目录: {ProfileOutputLayout.GetProfileDirectory(output, profile)}");
         Console.WriteLine($"Coreset: {config.CoresetRatio:P0}, kNN: {config.NumNeighbors}");
+        if (splitMode == DatasetSplitMode.Count)
+            Console.WriteLine($"划分: 固定数量 OK Memory={splitOptions.OkMemoryCount}, OK 调参={splitOptions.OkTuneCount}, NG 调参={splitOptions.NgTuneCount}, seed={splitSeed}");
+        else
+            Console.WriteLine($"划分: 比例 OK {splitOptions.OkTrainRatio:P0}/{splitOptions.OkTuneRatio:P0}/{splitOptions.OkTestRatio:P0}, NG 调参 {splitOptions.NgTuneRatio:P0}, seed={splitSeed}");
 
-        using var trainer = new PatchCoreTrainer(config);
+        var service = new PatchCoreService();
         var progress = new Progress<string>(msg => Console.WriteLine(msg));
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        var model = trainer.Train(dataPath, progress);
-        model.Save(output);
+        var result = service.TrainAndTune(new TrainAndTuneRequest
+        {
+            OkDataPath = dataPath,
+            NgDataPath = string.IsNullOrWhiteSpace(ngData) ? null : ngData,
+            ModelOutputDir = output,
+            ProfileName = profile,
+            Config = config,
+            AutoSearchNeighbors = autoSearchNeighbors,
+            SplitOptions = splitOptions
+        }, progress);
         stopwatch.Stop();
 
-        Console.WriteLine($"训练完成，模型已保存: {output}");
+        Console.WriteLine($"训练完成，模型已保存: {result.ModelPath}");
+        ProfileOutputLayout.SaveProfileConfig(output, profile, new PatchCoreSettings
+        {
+            ProfileName = profile,
+            ModelOutputDir = output,
+            BackboneId = config.BackboneId,
+            NumNeighbors = result.NumNeighbors,
+            AnomalyThreshold = result.Threshold
+        });
+        Console.WriteLine($"Memory Bank={result.MemoryBankSize}, 阈值={result.Threshold:F4}, kNN={result.NumNeighbors}");
         Console.WriteLine($"耗时: {stopwatch.Elapsed.TotalSeconds:F2} 秒");
         return 0;
     }
@@ -160,10 +209,21 @@ internal static class Program
             PatchCore-NG - 工业异常检测 (C#)
 
             用法:
-              PatchCoreNg train  --data <正常样本目录> [--output models/patchcore_model.json]
+              PatchCoreNg train  --data <OK目录> [--ng-data <NG目录>] [--output models] [--profile default]
               PatchCoreNg predict --model <模型.json> --input <图像或目录> [--output output/predictions]
 
             可选参数:
+              --ng-data           NG 样本目录（用于调参）
+              --split-mode        划分方式 ratio 或 count (默认 ratio)
+              --ok-train-ratio    OK Memory 比例 (ratio 模式, 默认 0.6)
+              --ok-tune-ratio     OK 调参比例 (ratio 模式, 默认 0.2)
+              --ok-test-ratio     OK 测试比例 (ratio 模式, 默认 0.2)
+              --ng-tune-ratio     NG 调参比例 (ratio 模式, 默认 0.5)
+              --ok-memory-count   OK Memory 张数 (count 模式, 默认 6)
+              --ok-tune-count     OK 调参张数 (count 模式, 默认 2)
+              --ng-tune-count     NG 调参张数 (count 模式, 默认 3)
+              --split-seed        随机划分种子 (默认 42)
+              --auto-search-neighbors  自动搜索 kNN (默认 true)
               --backbone-id  Backbone 标识 (wide_resnet50_2 / resnet18 / ...)
               --backbone     直接指定 ONNX 路径 (等同 custom)
               --image-size 输入尺寸 (默认 224)

@@ -115,6 +115,31 @@ public static class ParameterTuner
         return best ?? throw new InvalidOperationException("无法计算调参指标。");
     }
 
+    public static TuningMetrics EvaluateAtScores(
+        IReadOnlyList<float> okScores,
+        IReadOnlyList<float> ngScores,
+        float threshold,
+        int numNeighbors)
+    {
+        if (okScores.Count == 0 || ngScores.Count == 0)
+            throw new InvalidOperationException("评估需要至少 1 张 OK 样本和 1 张 NG 样本。");
+
+        return Evaluate(okScores, ngScores, threshold, numNeighbors);
+    }
+
+    public static TuningMetrics EvaluateAtThreshold(
+        PatchCoreModel model,
+        PatchCoreConfig config,
+        int numNeighbors,
+        IReadOnlyList<string> okPaths,
+        IReadOnlyList<string> ngPaths,
+        float threshold)
+    {
+        var okScores = ScoreImages(model, config, numNeighbors, okPaths);
+        var ngScores = ScoreImages(model, config, numNeighbors, ngPaths);
+        return EvaluateAtScores(okScores, ngScores, threshold, numNeighbors);
+    }
+
     private static TuningMetrics Evaluate(
         IReadOnlyList<float> okScores,
         IReadOnlyList<float> ngScores,

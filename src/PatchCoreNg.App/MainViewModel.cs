@@ -23,15 +23,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly PatchCoreService _service = new();
     private readonly PatchCoreSettings _settings = PatchCoreSettings.CreateDefault();
 
-    private string _trainDataPath = string.Empty;
-    private string _okTunePath = string.Empty;
-    private string _ngTunePath = string.Empty;
+    private string _okDataPath = string.Empty;
+    private string _ngDataPath = string.Empty;
     private bool _autoSearchNeighbors = true;
     private string _tuneResultText = string.Empty;
-    private string _modelOutputPath = AppPaths.Resolve("models/patchcore_model.json");
+    private string _testResultText = string.Empty;
+    private string _modelOutputDir = "models";
     private string _trainLog = string.Empty;
     private string _trainTimeText = "耗时: -";
-    private string _modelPath = AppPaths.Resolve("models/patchcore_model.json");
+    private string _modelPath = string.Empty;
     private string _inferInputPath = string.Empty;
     private string _inferOutputPath = AppPaths.Resolve("output/predictions");
     private bool _inferSingleImage = true;
@@ -58,9 +58,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         foreach (var backbone in BackboneCatalog.All)
             AvailableBackbones.Add(backbone);
 
-        BrowseTrainDataCommand = new RelayCommand(_ => BrowseTrainData());
-        BrowseOkTuneCommand = new RelayCommand(_ => BrowseOkTune());
-        BrowseNgTuneCommand = new RelayCommand(_ => BrowseNgTune());
+        BrowseOkDataCommand = new RelayCommand(_ => BrowseOkData());
+        BrowseNgDataCommand = new RelayCommand(_ => BrowseNgData());
         BrowseModelOutputCommand = new RelayCommand(_ => BrowseModelOutput());
         TrainCommand = new AsyncRelayCommand(_ => TrainAsync(), _ => CanRunTrain());
 
@@ -81,15 +80,25 @@ public sealed class MainViewModel : INotifyPropertyChanged
         EnsureDefaultConfig();
         RefreshProfiles();
         LoadStartupProfile();
+        SyncModelPathsFromProfile();
         UpdateBackboneUi();
     }
 
     private static readonly HashSet<string> DirtyProperties =
     [
-        nameof(TrainDataPath),
-        nameof(OkTunePath),
-        nameof(NgTunePath),
-        nameof(ModelOutputPath),
+        nameof(OkDataPath),
+        nameof(NgDataPath),
+        nameof(OkTrainRatio),
+        nameof(OkTuneRatio),
+        nameof(OkTestRatio),
+        nameof(NgTuneRatio),
+        nameof(UseRatioSplit),
+        nameof(UseCountSplit),
+        nameof(OkMemoryCount),
+        nameof(OkTuneCount),
+        nameof(NgTuneCount),
+        nameof(SplitSeed),
+        nameof(ModelOutputDir),
         nameof(ModelPath),
         nameof(AutoSearchNeighbors),
         nameof(SelectedBackboneId),
@@ -105,34 +114,110 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public ObservableCollection<BackboneOption> AvailableBackbones { get; } = [];
 
-    public string TrainDataPath
+    public string OkDataPath
     {
-        get => _trainDataPath;
+        get => _okDataPath;
         set
         {
-            if (SetField(ref _trainDataPath, value))
-                _settings.OkTrainPath = value;
+            if (SetField(ref _okDataPath, value))
+                _settings.OkDataPath = value;
         }
     }
 
-    public string OkTunePath
+    public string NgDataPath
     {
-        get => _okTunePath;
+        get => _ngDataPath;
         set
         {
-            if (SetField(ref _okTunePath, value))
-                _settings.OkTunePath = value;
+            if (SetField(ref _ngDataPath, value))
+                _settings.NgDataPath = value;
         }
     }
 
-    public string NgTunePath
+    public string OkTrainRatio
     {
-        get => _ngTunePath;
+        get => _settings.OkTrainRatio.ToString("G");
+        set => UpdateDoubleSetting(value, v => _settings.OkTrainRatio = v, nameof(OkTrainRatio));
+    }
+
+    public string OkTuneRatio
+    {
+        get => _settings.OkTuneRatio.ToString("G");
+        set => UpdateDoubleSetting(value, v => _settings.OkTuneRatio = v, nameof(OkTuneRatio));
+    }
+
+    public string OkTestRatio
+    {
+        get => _settings.OkTestRatio.ToString("G");
+        set => UpdateDoubleSetting(value, v => _settings.OkTestRatio = v, nameof(OkTestRatio));
+    }
+
+    public string NgTuneRatio
+    {
+        get => _settings.NgTuneRatio.ToString("G");
+        set => UpdateDoubleSetting(value, v => _settings.NgTuneRatio = v, nameof(NgTuneRatio));
+    }
+
+    public bool UseRatioSplit
+    {
+        get => _settings.SplitMode == DatasetSplitMode.Ratio;
         set
         {
-            if (SetField(ref _ngTunePath, value))
-                _settings.NgTunePath = value;
+            if (!value || _settings.SplitMode == DatasetSplitMode.Ratio)
+                return;
+
+            _settings.SplitMode = DatasetSplitMode.Ratio;
+            NotifySplitModeChanged();
         }
+    }
+
+    public bool UseCountSplit
+    {
+        get => _settings.SplitMode == DatasetSplitMode.Count;
+        set
+        {
+            if (!value || _settings.SplitMode == DatasetSplitMode.Count)
+                return;
+
+            _settings.SplitMode = DatasetSplitMode.Count;
+            NotifySplitModeChanged();
+        }
+    }
+
+    public bool ShowRatioSplit => UseRatioSplit;
+
+    public bool ShowCountSplit => UseCountSplit;
+
+    public string OkMemoryCount
+    {
+        get => _settings.OkMemoryCount.ToString();
+        set => UpdateIntSetting(value, v => _settings.OkMemoryCount = v, nameof(OkMemoryCount));
+    }
+
+    public string OkTuneCount
+    {
+        get => _settings.OkTuneCount.ToString();
+        set => UpdateIntSetting(value, v => _settings.OkTuneCount = v, nameof(OkTuneCount));
+    }
+
+    public string NgTuneCount
+    {
+        get => _settings.NgTuneCount.ToString();
+        set => UpdateIntSetting(value, v => _settings.NgTuneCount = v, nameof(NgTuneCount));
+    }
+
+    private void NotifySplitModeChanged()
+    {
+        OnPropertyChanged(nameof(UseRatioSplit));
+        OnPropertyChanged(nameof(UseCountSplit));
+        OnPropertyChanged(nameof(ShowRatioSplit));
+        OnPropertyChanged(nameof(ShowCountSplit));
+    }
+
+    public string SplitSeed
+    {
+        get => _settings.SplitSeed.ToString();
+        set => UpdateIntSetting(value, v => _settings.SplitSeed = v, nameof(SplitSeed));
     }
 
     public bool AutoSearchNeighbors
@@ -151,11 +236,29 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set => SetField(ref _tuneResultText, value);
     }
 
-    public string ModelOutputPath
+    public string TestResultText
     {
-        get => _modelOutputPath;
-        set => SetField(ref _modelOutputPath, value);
+        get => _testResultText;
+        set => SetField(ref _testResultText, value);
     }
+
+    public string ModelOutputDir
+    {
+        get => _modelOutputDir;
+        set
+        {
+            if (SetField(ref _modelOutputDir, value))
+            {
+                _settings.ModelOutputDir = value;
+                SyncModelPathsFromProfile();
+            }
+        }
+    }
+
+    public string ProfileOutputHint =>
+        string.IsNullOrWhiteSpace(_activeProfileName)
+            ? string.Empty
+            : $"当前配置输出: {AppPaths.Resolve(_settings.ModelOutputDir)}/{ProfileOutputLayout.SanitizeProfileName(_activeProfileName)}/patchcore_model.json, config.json";
 
     public string TrainLog
     {
@@ -424,9 +527,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ObservableCollection<PredictionRowViewModel> Predictions { get; } = [];
     public ObservableCollection<string> AvailableProfiles { get; } = [];
 
-    public RelayCommand BrowseTrainDataCommand { get; }
-    public RelayCommand BrowseOkTuneCommand { get; }
-    public RelayCommand BrowseNgTuneCommand { get; }
+    public RelayCommand BrowseOkDataCommand { get; }
+    public RelayCommand BrowseNgDataCommand { get; }
     public RelayCommand BrowseModelOutputCommand { get; }
     public AsyncRelayCommand TrainCommand { get; }
     public RelayCommand BrowseModelCommand { get; }
@@ -447,8 +549,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private bool CanRunTrain() =>
         !IsBusy
-        && Directory.Exists(TrainDataPath)
-        && !string.IsNullOrWhiteSpace(ModelOutputPath)
+        && Directory.Exists(OkDataPath)
+        && !string.IsNullOrWhiteSpace(ModelOutputDir)
         && TryBuildConfig(out _);
 
     private bool CanRunPredict() =>
@@ -470,39 +572,25 @@ public sealed class MainViewModel : INotifyPropertyChanged
             : $"导出命令: {BackboneCatalog.GetExportCommand(SelectedBackboneId)}";
     }
 
-    private void BrowseTrainData()
+    private void BrowseOkData()
     {
-        var path = PickFolder("选择 OK 训练目录（正常样本）");
+        var path = PickFolder("选择 OK 样本目录（正常产品图像）");
         if (!string.IsNullOrWhiteSpace(path))
-            TrainDataPath = path;
+            OkDataPath = path;
     }
 
-    private void BrowseOkTune()
+    private void BrowseNgData()
     {
-        var path = PickFolder("选择 OK 调参目录（正常验证样本）");
+        var path = PickFolder("选择 NG 样本目录（异常/缺陷图像）");
         if (!string.IsNullOrWhiteSpace(path))
-            OkTunePath = path;
-    }
-
-    private void BrowseNgTune()
-    {
-        var path = PickFolder("选择 NG 调参目录（异常样本）");
-        if (!string.IsNullOrWhiteSpace(path))
-            NgTunePath = path;
+            NgDataPath = path;
     }
 
     private void BrowseModelOutput()
     {
-        var dialog = new SaveFileDialog
-        {
-            Title = "保存模型",
-            Filter = "PatchCore 模型 (*.json)|*.json",
-            FileName = Path.GetFileName(ModelOutputPath),
-            InitialDirectory = GetInitialDirectory(ModelOutputPath)
-        };
-
-        if (dialog.ShowDialog() == true)
-            ModelOutputPath = dialog.FileName;
+        var path = PickFolder("选择模型输出根目录（其下按配置名分子目录）");
+        if (!string.IsNullOrWhiteSpace(path))
+            ModelOutputDir = path;
     }
 
     private void BrowseModel()
@@ -592,6 +680,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             CaptureSettingsFromUi(name);
             SettingsStore.Save(ParamsConfigDir, _settings);
+            ProfileOutputLayout.SaveProfileConfig(_settings.ModelOutputDir, name, _settings);
             SettingsStore.SaveLastActiveProfile(ParamsConfigDir, name);
             _activeProfileName = name;
             _isProfileDirty = false;
@@ -732,6 +821,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _isProfileDirty = false;
             ProfileName = profileName;
             ParamsStatus = $"已切换: {path}";
+            SyncModelPathsFromProfile();
             OnPropertyChanged(nameof(ActiveProfileHint));
             return true;
         }
@@ -764,13 +854,24 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         _settings.BackboneId = SelectedBackboneId;
         _settings.SyncBackbonePath();
-        _settings.OkTrainPath = TrainDataPath;
-        _settings.OkTunePath = OkTunePath;
-        _settings.NgTunePath = NgTunePath;
+        _settings.OkDataPath = OkDataPath;
+        _settings.NgDataPath = NgDataPath;
         _settings.AutoSearchNeighbors = AutoSearchNeighbors;
-        _settings.ModelOutputPath = ModelOutputPath;
-        _settings.InferModelPath = ModelPath;
+        _settings.ModelOutputDir = ModelOutputDir;
         _settings.ProfileName = profileName;
+        _settings.NormalizeModelOutputDir();
+        _settings.NormalizeSplitRatios();
+    }
+
+    private void SyncModelPathsFromProfile()
+    {
+        _settings.ModelOutputDir = ModelOutputDir;
+        _settings.NormalizeModelOutputDir();
+        ModelOutputDir = _settings.ModelOutputDir;
+
+        var profile = string.IsNullOrWhiteSpace(_activeProfileName) ? "default" : _activeProfileName;
+        ModelPath = AppPaths.Resolve(_settings.GetModelPathForProfile(profile));
+        OnPropertyChanged(nameof(ProfileOutputHint));
     }
 
     private void SetSelectedProfileSilently(string profileName)
@@ -852,6 +953,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _suppressDirty = true;
         try
         {
+            settings.NormalizeLegacyPaths();
             _settings.ProfileName = settings.ProfileName;
             _settings.BackboneId = string.IsNullOrWhiteSpace(settings.BackboneId)
                 ? BackboneCatalog.GetByOnnxPath(settings.BackboneOnnxPath).Id
@@ -865,26 +967,40 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _settings.TargetEmbedDimension = settings.TargetEmbedDimension;
             _settings.AnomalyThreshold = settings.AnomalyThreshold;
             _settings.UseManualThreshold = settings.UseManualThreshold;
-            _settings.OkTrainPath = settings.OkTrainPath;
-            _settings.OkTunePath = settings.OkTunePath;
-            _settings.NgTunePath = settings.NgTunePath;
+            _settings.OkDataPath = settings.OkDataPath;
+            _settings.NgDataPath = settings.NgDataPath;
+            settings.NormalizeSplitRatios();
+            _settings.OkTrainRatio = settings.OkTrainRatio;
+            _settings.OkTuneRatio = settings.OkTuneRatio;
+            _settings.OkTestRatio = settings.OkTestRatio;
+            _settings.NgTuneRatio = settings.NgTuneRatio;
+            _settings.SplitMode = settings.SplitMode;
+            _settings.OkMemoryCount = settings.OkMemoryCount;
+            _settings.OkTuneCount = settings.OkTuneCount;
+            _settings.NgTuneCount = settings.NgTuneCount;
+            _settings.SplitSeed = settings.SplitSeed;
             _settings.AutoSearchNeighbors = settings.AutoSearchNeighbors;
-            _settings.ModelOutputPath = string.IsNullOrWhiteSpace(settings.ModelOutputPath)
-                ? "models/patchcore_model.json"
-                : settings.ModelOutputPath;
-            _settings.InferModelPath = string.IsNullOrWhiteSpace(settings.InferModelPath)
-                ? _settings.ModelOutputPath
-                : settings.InferModelPath;
+            settings.NormalizeModelOutputDir();
+            _settings.ModelOutputDir = settings.ModelOutputDir;
             _settings.SyncBackbonePath();
 
             ProfileName = settings.ProfileName;
+            _activeProfileName = settings.ProfileName;
             SelectedBackboneId = _settings.BackboneId;
-            TrainDataPath = settings.OkTrainPath;
-            OkTunePath = settings.OkTunePath;
-            NgTunePath = settings.NgTunePath;
+            OkDataPath = settings.OkDataPath;
+            NgDataPath = settings.NgDataPath;
+            OnPropertyChanged(nameof(OkTrainRatio));
+            OnPropertyChanged(nameof(OkTuneRatio));
+            OnPropertyChanged(nameof(OkTestRatio));
+            OnPropertyChanged(nameof(NgTuneRatio));
+            NotifySplitModeChanged();
+            OnPropertyChanged(nameof(OkMemoryCount));
+            OnPropertyChanged(nameof(OkTuneCount));
+            OnPropertyChanged(nameof(NgTuneCount));
+            OnPropertyChanged(nameof(SplitSeed));
             AutoSearchNeighbors = settings.AutoSearchNeighbors;
-            ModelOutputPath = AppPaths.Resolve(_settings.ModelOutputPath);
-            ModelPath = AppPaths.Resolve(_settings.InferModelPath);
+            ModelOutputDir = _settings.ModelOutputDir;
+            SyncModelPathsFromProfile();
             OnPropertyChanged(nameof(ImageSize));
             OnPropertyChanged(nameof(PatchSize));
             OnPropertyChanged(nameof(NumNeighbors));
@@ -913,27 +1029,34 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IsBusy = true;
         TrainLog = string.Empty;
         TuneResultText = string.Empty;
+        TestResultText = string.Empty;
         TrainTimeText = "耗时: 运行中...";
 
         try
         {
             var config = _settings.ToConfig();
             var progress = new Progress<string>(msg => AppendTrainLog(msg));
+            _settings.NormalizeSplitRatios();
+            CaptureSettingsFromUi(_activeProfileName);
             var result = await Task.Run(() => _service.TrainAndTune(new TrainAndTuneRequest
             {
-                OkTrainPath = TrainDataPath,
-                OkTunePath = string.IsNullOrWhiteSpace(OkTunePath) ? null : OkTunePath,
-                NgTunePath = string.IsNullOrWhiteSpace(NgTunePath) ? null : NgTunePath,
-                ModelOutputPath = ModelOutputPath,
+                OkDataPath = OkDataPath,
+                NgDataPath = string.IsNullOrWhiteSpace(NgDataPath) ? null : NgDataPath,
+                ModelOutputDir = _settings.ModelOutputDir,
+                ProfileName = _activeProfileName,
                 Config = config,
-                AutoSearchNeighbors = AutoSearchNeighbors
+                AutoSearchNeighbors = AutoSearchNeighbors,
+                SplitOptions = _settings.ToSplitOptions()
             }, progress));
 
             TrainTimeText = $"耗时: {FormatElapsed(result.Elapsed)}";
             AppendTrainLog($"Backbone: {BackboneCatalog.Get(SelectedBackboneId).DisplayName}");
+            AppendTrainLog($"输出目录: {ProfileOutputLayout.GetProfileDirectory(_settings.ModelOutputDir, _activeProfileName)}");
             AppendTrainLog($"训练完成: {result.ImageCount} 张, Memory Bank={result.MemoryBankSize}");
             AppendTrainLog($"Coreset={config.CoresetRatio:P0}, 输入={config.ImageSize}px");
             AppendTrainLog($"模型: {result.ModelPath}");
+            ProfileOutputLayout.SaveProfileConfig(_settings.ModelOutputDir, _activeProfileName, _settings);
+            AppendTrainLog($"配置: {_settings.GetConfigPathForProfile(_activeProfileName)}");
 
             if (result.TuningMetrics is { } m)
             {
@@ -954,9 +1077,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 AppendTrainLog(TuneResultText);
             }
 
+            if (result.TestMetrics is { } test)
+            {
+                TestResultText =
+                    $"测试集 | F1={test.F1:P1} | 准确率={test.Accuracy:P1} | 精确率={test.Precision:P1} | 召回率={test.Recall:P1} | " +
+                    $"TP={test.TruePositive} TN={test.TrueNegative} FP={test.FalsePositive} FN={test.FalseNegative}";
+                AppendTrainLog(TestResultText);
+            }
+            else
+            {
+                TestResultText = string.Empty;
+            }
+
             ModelPath = result.ModelPath;
-            _settings.ModelOutputPath = ModelOutputPath;
-            _settings.InferModelPath = result.ModelPath;
             _isProfileDirty = true;
             OnPropertyChanged(nameof(ActiveProfileHint));
         }
@@ -1075,9 +1208,58 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return false;
         }
 
-        if (string.IsNullOrWhiteSpace(TrainDataPath) || !Directory.Exists(TrainDataPath))
+        if (_settings.SplitMode == DatasetSplitMode.Count)
         {
-            error = "请指定有效的 OK 训练目录。";
+            if (!int.TryParse(OkMemoryCount, out var okMemoryCount) || okMemoryCount < 1)
+            {
+                error = "固定数量模式下 OK Memory 数量至少为 1。";
+                return false;
+            }
+
+            if (!int.TryParse(OkTuneCount, out var okTuneCount) || okTuneCount < 0)
+            {
+                error = "OK 调参数量必须是非负整数。";
+                return false;
+            }
+
+            if (!int.TryParse(NgTuneCount, out var ngTuneCount) || ngTuneCount < 0)
+            {
+                error = "NG 调参数量必须是非负整数。";
+                return false;
+            }
+        }
+        else
+        {
+            if (!double.TryParse(OkTrainRatio, out var okTrainRatio) || okTrainRatio < 0 ||
+                !double.TryParse(OkTuneRatio, out var okTuneRatio) || okTuneRatio < 0 ||
+                !double.TryParse(OkTestRatio, out var okTestRatio) || okTestRatio < 0)
+            {
+                error = "OK 划分比例必须是有效非负数。";
+                return false;
+            }
+
+            if (okTrainRatio + okTuneRatio + okTestRatio <= 0)
+            {
+                error = "OK Memory/调参/测试比例之和必须大于 0。";
+                return false;
+            }
+
+            if (!double.TryParse(NgTuneRatio, out var ngTuneRatio) || ngTuneRatio <= 0 || ngTuneRatio >= 1)
+            {
+                error = "NG 调参比例必须是 0~1 之间的小数（不含 0 和 1）。";
+                return false;
+            }
+        }
+
+        if (!int.TryParse(SplitSeed, out _))
+        {
+            error = "划分随机种子必须是整数。";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(OkDataPath) || !Directory.Exists(OkDataPath))
+        {
+            error = "请指定有效的 OK 样本目录。";
             return false;
         }
 
@@ -1094,6 +1276,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
 
         return true;
+    }
+
+    private void UpdateDoubleSetting(string value, Action<double> setter, string propertyName)
+    {
+        if (double.TryParse(value, out var parsed))
+            setter(parsed);
+        OnPropertyChanged(propertyName);
     }
 
     private void UpdateIntSetting(string value, Action<int> setter, string propertyName)

@@ -40,6 +40,7 @@
             <Setter Property="MaxWidth" Value="440"/>
             <Setter Property="Padding" Value="10,8"/>
         </Style>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
     </Window.Resources>
 
     <Grid Margin="16">
@@ -121,7 +122,7 @@
                             <Grid.ToolTip>
                                 <ToolTip>
                                     <TextBlock TextWrapping="Wrap"
-                                               Text="OK 训练目录（必填）&#x0a;放置无缺陷的正常产品图像。PatchCore 会从中提取 patch 特征，经 Coreset 采样后写入 Memory Bank，作为后续异常检测的参照基准。&#x0a;建议：覆盖典型正常外观变化，数量越多越好。"/>
+                                               Text="OK 样本目录（必填）&#x0a;放置全部正常产品图像。训练时按下方比例随机划分为三部分：Memory Bank 训练集、阈值调参集、独立测试集。&#x0a;建议至少 3 张以上，以便三部分均有样本。"/>
                                 </ToolTip>
                             </Grid.ToolTip>
                             <Grid.ColumnDefinitions>
@@ -129,18 +130,16 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="OK 训练目录"/>
-                            <TextBox Grid.Column="1" Style="{StaticResource PathTextBox}" Text="{Binding TrainDataPath}"/>
-                            <Button Grid.Column="2" Style="{StaticResource BrowseButton}" Content="浏览..." Command="{Binding BrowseTrainDataCommand}"/>
+                            <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="OK 目录"/>
+                            <TextBox Grid.Column="1" Style="{StaticResource PathTextBox}" Text="{Binding OkDataPath}"/>
+                            <Button Grid.Column="2" Style="{StaticResource BrowseButton}" Content="浏览..." Command="{Binding BrowseOkDataCommand}"/>
                         </Grid>
-                        <TextBlock Margin="116,0,0,8" Foreground="#666" TextWrapping="Wrap"
-                                   Text="正常样本，用于构建 Memory Bank（必填）"/>
 
                         <Grid Margin="0,0,0,8">
                             <Grid.ToolTip>
                                 <ToolTip>
                                     <TextBlock TextWrapping="Wrap"
-                                               Text="OK 调参目录（可选）&#x0a;用于验证的正常样本，不参与 Memory Bank 构建。与 NG 调参目录一起，自动搜索使 OK/NG 区分效果最好的异常阈值和 kNN 邻居数。&#x0a;留空则使用 OK 训练目录评分（易偏乐观，建议单独准备验证 OK）。"/>
+                                               Text="NG 样本目录（推荐）&#x0a;放置全部异常/缺陷样本。按 NG 调参比例随机划分为：阈值调参集与独立测试集。不参与 Memory Bank 构建。"/>
                                 </ToolTip>
                             </Grid.ToolTip>
                             <Grid.ColumnDefinitions>
@@ -148,31 +147,83 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="OK 调参目录"/>
-                            <TextBox Grid.Column="1" Style="{StaticResource PathTextBox}" Text="{Binding OkTunePath}"/>
-                            <Button Grid.Column="2" Style="{StaticResource BrowseButton}" Content="浏览..." Command="{Binding BrowseOkTuneCommand}"/>
+                            <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="NG 目录"/>
+                            <TextBox Grid.Column="1" Style="{StaticResource PathTextBox}" Text="{Binding NgDataPath}"/>
+                            <Button Grid.Column="2" Style="{StaticResource BrowseButton}" Content="浏览..." Command="{Binding BrowseNgDataCommand}"/>
                         </Grid>
-                        <TextBlock Margin="116,0,0,8" Foreground="#666" TextWrapping="Wrap"
-                                   Text="正常样本验证集，用于调阈值（可选，默认同训练目录）"/>
 
-                        <Grid Margin="0,0,0,8">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <RadioButton Content="按比例划分" IsChecked="{Binding UseRatioSplit}" GroupName="SplitMode" Margin="0,0,24,0"/>
+                            <RadioButton Content="按固定数量" IsChecked="{Binding UseCountSplit}" GroupName="SplitMode"/>
+                        </StackPanel>
+
+                        <Grid Margin="0,0,0,8"
+                              Visibility="{Binding ShowRatioSplit, Converter={StaticResource BoolToVis}}">
                             <Grid.ToolTip>
                                 <ToolTip>
                                     <TextBlock TextWrapping="Wrap"
-                                               Text="NG 调参目录（推荐）&#x0a;放置已知缺陷/异常样本。系统对 OK 与 NG 样本分别打分，以 F1 最优为准自动确定异常阈值；勾选「自动搜索 kNN」时还会比较 1/3/5/9/15 等邻居数。&#x0a;未填写时跳过 OK/NG 调参，仅使用训练集 P95 作为阈值。"/>
+                                               Text="OK 划分比例（三者之和会自动归一化）：&#x0a;• Memory：构建 Memory Bank&#x0a;• 调参：与 NG 调参集一起搜索阈值/kNN&#x0a;• 测试：用最终阈值独立评估（不参与调参）"/>
                                 </ToolTip>
                             </Grid.ToolTip>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="72"/>
                                 <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="72"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="72"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="72"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="72"/>
+                                <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="NG 调参目录"/>
-                            <TextBox Grid.Column="1" Style="{StaticResource PathTextBox}" Text="{Binding NgTunePath}"/>
-                            <Button Grid.Column="2" Style="{StaticResource BrowseButton}" Content="浏览..." Command="{Binding BrowseNgTuneCommand}"/>
+                            <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="OK Memory" Width="88"/>
+                            <TextBox Grid.Column="1" Height="32" VerticalContentAlignment="Center" Text="{Binding OkTrainRatio}"/>
+                            <TextBlock Grid.Column="2" Style="{StaticResource FieldLabel}" Text="OK 调参" Margin="8,0,8,0" Width="56"/>
+                            <TextBox Grid.Column="3" Height="32" VerticalContentAlignment="Center" Text="{Binding OkTuneRatio}"/>
+                            <TextBlock Grid.Column="4" Style="{StaticResource FieldLabel}" Text="OK 测试" Margin="8,0,8,0" Width="56"/>
+                            <TextBox Grid.Column="5" Height="32" VerticalContentAlignment="Center" Text="{Binding OkTestRatio}"/>
+                            <TextBlock Grid.Column="6" Style="{StaticResource FieldLabel}" Text="NG 调参" Margin="8,0,8,0" Width="56"/>
+                            <TextBox Grid.Column="7" Height="32" VerticalContentAlignment="Center" Text="{Binding NgTuneRatio}"/>
+                            <TextBlock Grid.Column="8" Style="{StaticResource FieldLabel}" Text="种子" Margin="8,0,8,0" Width="40"/>
+                            <TextBox Grid.Column="9" Height="32" VerticalContentAlignment="Center" Text="{Binding SplitSeed}"/>
+                        </Grid>
+                        <TextBlock Margin="116,0,0,8" Foreground="#666" TextWrapping="Wrap"
+                                   Visibility="{Binding ShowRatioSplit, Converter={StaticResource BoolToVis}}"
+                                   Text="NG 测试比例 = 1 − NG 调参比例。默认 OK 6:2:2，NG 5:5。"/>
+
+                        <Grid Margin="0,0,0,8"
+                              Visibility="{Binding ShowCountSplit, Converter={StaticResource BoolToVis}}">
+                            <Grid.ToolTip>
+                                <ToolTip>
+                                    <TextBlock TextWrapping="Wrap"
+                                               Text="固定数量划分：随机打乱后依次取指定张数。&#x0a;• OK Memory / OK 调参：固定张数&#x0a;• OK 测试 / NG 测试：剩余全部&#x0a;• NG 调参：固定张数，其余为 NG 测试"/>
+                                </ToolTip>
+                            </Grid.ToolTip>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="72"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="72"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="72"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="72"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="OK Memory" Width="88"/>
+                            <TextBox Grid.Column="1" Height="32" VerticalContentAlignment="Center" Text="{Binding OkMemoryCount}"/>
+                            <TextBlock Grid.Column="2" Style="{StaticResource FieldLabel}" Text="OK 调参" Margin="8,0,8,0" Width="56"/>
+                            <TextBox Grid.Column="3" Height="32" VerticalContentAlignment="Center" Text="{Binding OkTuneCount}"/>
+                            <TextBlock Grid.Column="4" Style="{StaticResource FieldLabel}" Text="NG 调参" Margin="8,0,8,0" Width="56"/>
+                            <TextBox Grid.Column="5" Height="32" VerticalContentAlignment="Center" Text="{Binding NgTuneCount}"/>
+                            <TextBlock Grid.Column="6" Style="{StaticResource FieldLabel}" Text="种子" Margin="8,0,8,0" Width="40"/>
+                            <TextBox Grid.Column="7" Height="32" VerticalContentAlignment="Center" Text="{Binding SplitSeed}"/>
                         </Grid>
                         <TextBlock Margin="116,0,0,16" Foreground="#666" TextWrapping="Wrap"
-                                   Text="异常样本，与 OK 调参目录一起自动搜索最佳阈值和 kNN（推荐填写）"/>
+                                   Visibility="{Binding ShowCountSplit, Converter={StaticResource BoolToVis}}"
+                                   Text="OK 测试 = OK 总数 − Memory − 调参；NG 测试 = NG 总数 − 调参。默认 Memory=6, 调参=2, NG调参=3。"/>
 
                         <TextBlock Style="{StaticResource SectionTitle}" Text="2. 模型与超参数"/>
 
@@ -180,7 +231,7 @@
                             <Grid.ToolTip>
                                 <ToolTip>
                                     <TextBlock TextWrapping="Wrap"
-                                               Text="模型输出路径&#x0a;训练完成后保存的 .json 模型文件，包含 Memory Bank、Coreset 参数、调参后的异常阈值和 kNN 设置。推理页可直接加载此文件。"/>
+                                               Text="模型输出根目录&#x0a;指定一个目录，程序会在其下按当前配置名自动创建子目录，例如 models/default/。&#x0a;子目录内保存 patchcore_model.json（模型）和 config.json（参数快照）。切换配置时推理模型路径自动对应。"/>
                                 </ToolTip>
                             </Grid.ToolTip>
                             <Grid.ColumnDefinitions>
@@ -188,10 +239,12 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="模型输出"/>
-                            <TextBox Grid.Column="1" Style="{StaticResource PathTextBox}" Text="{Binding ModelOutputPath}"/>
+                            <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="模型输出目录"/>
+                            <TextBox Grid.Column="1" Style="{StaticResource PathTextBox}" Text="{Binding ModelOutputDir}"/>
                             <Button Grid.Column="2" Style="{StaticResource BrowseButton}" Content="浏览..." Command="{Binding BrowseModelOutputCommand}"/>
                         </Grid>
+                        <TextBlock Margin="116,0,0,8" Foreground="#666" TextWrapping="Wrap"
+                                   Text="{Binding ProfileOutputHint}"/>
 
                         <Grid Margin="0,0,0,8">
                             <Grid.ToolTip>
@@ -314,7 +367,8 @@
                             <TextBlock Text="{Binding TrainTimeText}" VerticalAlignment="Center" Margin="16,0,0,0"
                                        FontWeight="SemiBold" Foreground="#1565C0"/>
                         </StackPanel>
-                        <TextBlock Text="{Binding TuneResultText}" Foreground="#2E7D32" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <TextBlock Text="{Binding TuneResultText}" Foreground="#2E7D32" TextWrapping="Wrap" Margin="0,0,0,4"/>
+                        <TextBlock Text="{Binding TestResultText}" Foreground="#1565C0" TextWrapping="Wrap" Margin="0,0,0,8"/>
 
                         <GroupBox Header="日志" MinHeight="180">
                             <ScrollViewer x:Name="TrainLogScrollViewer"
