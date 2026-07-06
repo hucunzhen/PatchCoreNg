@@ -133,11 +133,15 @@ internal static class Program
 
         foreach (var imagePath in imagePaths)
         {
-            var itemStopwatch = System.Diagnostics.Stopwatch.StartNew();
             var result = predictor.Predict(imagePath, heatmapDir);
-            itemStopwatch.Stop();
             Console.WriteLine(
-                $"{Path.GetFileName(result.ImagePath)}  score={result.AnomalyScore:F4}  label={result.Label}  耗时={itemStopwatch.Elapsed.TotalSeconds:F2}s");
+                $"{Path.GetFileName(result.ImagePath)}  score={result.AnomalyScore:F4}  label={result.Label}");
+            if (result.StageTiming is { } timing)
+            {
+                Console.WriteLine($"  {timing.FormatStages()}");
+                Console.WriteLine($"  {timing.FormatPercentages()}");
+            }
+
             if (result.IsAnomaly)
                 anomalies++;
         }

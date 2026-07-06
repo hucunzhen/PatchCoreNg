@@ -411,12 +411,22 @@ public sealed class PatchCoreService
             items.Add(new TimedPredictionResult
             {
                 Result = result,
-                Elapsed = itemStopwatch.Elapsed,
+                Elapsed = result.StageTiming?.Total ?? itemStopwatch.Elapsed,
             });
 
-            log.Info(
-                "推理",
-                $"{i + 1}/{pathList.Count} {Path.GetFileName(imagePath)} score={result.AnomalyScore:F4} {result.Label} 耗时={StepProgress.FormatElapsed(itemStopwatch.Elapsed)}");
+            var timing = result.StageTiming;
+            if (timing is not null)
+            {
+                log.Info("推理", $"{i + 1}/{pathList.Count} {Path.GetFileName(imagePath)} score={result.AnomalyScore:F4} {result.Label}");
+                log.Info("推理-耗时", timing.FormatStages());
+                log.Info("推理-占比", timing.FormatPercentages());
+            }
+            else
+            {
+                log.Info(
+                    "推理",
+                    $"{i + 1}/{pathList.Count} {Path.GetFileName(imagePath)} score={result.AnomalyScore:F4} {result.Label} 耗时={StepProgress.FormatElapsed(itemStopwatch.Elapsed)}");
+            }
         }
 
         var ngCount = items.Count(x => x.Result.IsAnomaly);

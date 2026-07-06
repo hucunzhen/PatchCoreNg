@@ -16,6 +16,7 @@ public sealed class PredictionRowViewModel
     public required float Score { get; init; }
     public required string Label { get; init; }
     public required string ElapsedText { get; init; }
+    public string TimingDetail { get; init; } = string.Empty;
 }
 
 public sealed class MainViewModel : INotifyPropertyChanged
@@ -37,6 +38,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private bool _inferSingleImage = true;
     private string _inferTimeText = "总耗时: -";
     private string _inferSummary = string.Empty;
+    private string _inferTimingDetail = string.Empty;
     private string? _previewOriginalPath;
     private string? _previewHeatmapPath;
     private bool _isBusy;
@@ -404,6 +406,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set => SetField(ref _inferSummary, value);
     }
 
+    public string InferTimingDetail
+    {
+        get => _inferTimingDetail;
+        set => SetField(ref _inferTimingDetail, value);
+    }
+
     public string? PreviewOriginalPath
     {
         get => _previewOriginalPath;
@@ -427,6 +435,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         PreviewOriginalPath = row.ImagePath;
         PreviewHeatmapPath = row.HeatmapPath;
+        InferTimingDetail = row.TimingDetail;
     }
 
     public void ClearPreview()
@@ -1258,6 +1267,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ClearPreview();
         InferTimeText = "总耗时: 运行中...";
         InferSummary = string.Empty;
+        InferTimingDetail = string.Empty;
 
         try
         {
@@ -1276,6 +1286,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             foreach (var item in batch.Items)
             {
+                var timing = item.Result.StageTiming;
                 Predictions.Add(new PredictionRowViewModel
                 {
                     FileName = Path.GetFileName(item.Result.ImagePath),
@@ -1284,6 +1295,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
                     Score = item.Result.AnomalyScore,
                     Label = item.Result.Label,
                     ElapsedText = FormatElapsed(item.Elapsed),
+                    TimingDetail = timing is null
+                        ? string.Empty
+                        : $"{timing.FormatStages()}{Environment.NewLine}{timing.FormatPercentages()}",
                 });
             }
 

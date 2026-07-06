@@ -468,6 +468,7 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
 
@@ -522,9 +523,11 @@
                                        FontWeight="SemiBold" Foreground="#1565C0"/>
                         </StackPanel>
 
-                        <TextBlock Grid.Row="7" Text="{Binding InferSummary}" Margin="0,0,0,8" Foreground="#444"/>
+                        <TextBlock Grid.Row="7" Text="{Binding InferSummary}" Margin="0,0,0,4" Foreground="#444"/>
+                        <TextBlock Grid.Row="8" Text="{Binding InferTimingDetail}" Margin="0,0,0,8" Foreground="#666"
+                                   FontSize="11" TextWrapping="Wrap"/>
 
-                        <DataGrid Grid.Row="8"
+                        <DataGrid Grid.Row="9"
                                   ItemsSource="{Binding Predictions}"
                                   AutoGenerateColumns="False"
                                   IsReadOnly="True"
