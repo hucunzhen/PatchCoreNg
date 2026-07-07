@@ -68,7 +68,12 @@ public static class BackboneCatalog
             "mobilenet_v3_large",
             "MobileNet-V3-Large",
             "models/mobilenet_v3_large_features.onnx",
-            "移动端友好，最轻量"),
+            "移动端友好，轻量快速"),
+        new(
+            "mobilenet_v3_small",
+            "MobileNet-V3-Small",
+            "models/mobilenet_v3_small_features.onnx",
+            "比 V3-Large 更小更快，适合极致提速"),
         new(
             CustomId,
             "自定义 ONNX",
@@ -129,11 +134,15 @@ public static class BackboneCatalog
         }
     }
 
-    public static string GetExportCommand(string? backboneId = null)
+    public static string GetExportCommand(string? backboneId = null, int? targetDim = null, int? imageSize = null)
     {
-        if (string.IsNullOrWhiteSpace(backboneId) || string.Equals(backboneId, CustomId, StringComparison.OrdinalIgnoreCase))
-            return "python scripts/export_backbone.py --all";
+        var dimSuffix = targetDim is > 0 ? $" --target-dim {targetDim.Value}" : string.Empty;
+        var sizeSuffix = imageSize is > 0 ? $" --image-size {imageSize.Value}" : string.Empty;
+        var extra = $"{dimSuffix}{sizeSuffix}";
 
-        return $"python scripts/export_backbone.py --backbone {backboneId}";
+        if (string.IsNullOrWhiteSpace(backboneId) || string.Equals(backboneId, CustomId, StringComparison.OrdinalIgnoreCase))
+            return $"python scripts/export_backbone.py --all{extra}";
+
+        return $"python scripts/export_backbone.py --backbone {backboneId}{extra}";
     }
 }

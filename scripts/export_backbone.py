@@ -13,6 +13,7 @@ import torch.nn.functional as F
 from torchvision.models import (
     EfficientNet_B0_Weights,
     MobileNet_V3_Large_Weights,
+    MobileNet_V3_Small_Weights,
     ResNet101_Weights,
     ResNet18_Weights,
     ResNet50_Weights,
@@ -20,6 +21,7 @@ from torchvision.models import (
     Wide_ResNet50_2_Weights,
     efficientnet_b0,
     mobilenet_v3_large,
+    mobilenet_v3_small,
     resnet101,
     resnet18,
     resnet50,
@@ -139,6 +141,11 @@ def _build_mobilenet_v3_large() -> nn.Module:
     return SequentialFeatureBackbone(net.features, layer2_end=7, layer3_end=13)
 
 
+def _build_mobilenet_v3_small() -> nn.Module:
+    net = mobilenet_v3_small(weights=MobileNet_V3_Small_Weights.IMAGENET1K_V1)
+    return SequentialFeatureBackbone(net.features, layer2_end=7, layer3_end=11)
+
+
 register(BackboneSpec(
     "wide_resnet50_2",
     "WideResNet-50 (推荐)",
@@ -185,8 +192,15 @@ register(BackboneSpec(
     "mobilenet_v3_large",
     "MobileNet-V3-Large",
     "mobilenet_v3_large_features.onnx",
-    "移动端友好，最轻量",
+    "移动端友好，轻量快速",
     _build_mobilenet_v3_large,
+))
+register(BackboneSpec(
+    "mobilenet_v3_small",
+    "MobileNet-V3-Small",
+    "mobilenet_v3_small_features.onnx",
+    "比 V3-Large 更小更快，适合极致提速",
+    _build_mobilenet_v3_small,
 ))
 
 # 兼容旧文件名

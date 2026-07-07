@@ -61,6 +61,8 @@ internal static class Program
             };
         var autoSearchNeighbors = !options.TryGetValue("auto-search-neighbors", out var autoSearch)
             || !string.Equals(autoSearch, "false", StringComparison.OrdinalIgnoreCase);
+        var autoSearchAnnProbes = !options.TryGetValue("auto-search-ann-probes", out var autoAnn)
+            || !string.Equals(autoAnn, "false", StringComparison.OrdinalIgnoreCase);
 
         Console.WriteLine("=== PatchCore-NG 训练 ===");
         Console.WriteLine($"OK 数据: {dataPath}");
@@ -84,6 +86,7 @@ internal static class Program
             ProfileName = profile,
             Config = config,
             AutoSearchNeighbors = autoSearchNeighbors,
+            AutoSearchAnnProbes = autoSearchAnnProbes,
             SplitOptions = splitOptions
         }, progress);
         stopwatch.Stop();
@@ -158,14 +161,14 @@ internal static class Program
     {
         Console.WriteLine("导出 WideResNet50 等 backbone ONNX:");
         Console.WriteLine("  python scripts/export_backbone.py --list");
-        Console.WriteLine("  python scripts/export_backbone.py --backbone wide_resnet50_2");
+        Console.WriteLine("  python scripts/export_backbone.py --backbone wide_resnet50_2 --target-dim 1024");
         Console.WriteLine("  python scripts/export_backbone.py --all");
         return 0;
     }
 
     private static PatchCoreConfig BuildConfig(Dictionary<string, string> options)
     {
-        return new PatchCoreConfig
+        var config = new PatchCoreConfig
         {
             BackboneId = options.GetValueOrDefault("backbone-id", BackboneCatalog.DefaultId),
             CustomBackboneOnnxPath = options.GetValueOrDefault("custom-backbone", string.Empty),
@@ -187,6 +190,8 @@ internal static class Program
             AnnClusterCount = int.Parse(options.GetValueOrDefault("ann-clusters", "32")),
             AnnProbeClusters = int.Parse(options.GetValueOrDefault("ann-probes", "4")),
         };
+        EmbedDimension.ValidateConfigValue(config.TargetEmbedDimension);
+        return config;
     }
 
     private static DistanceMetric ParseDistanceMetric(string value) =>
@@ -251,12 +256,14 @@ internal static class Program
               --ng-tune-count     NG 调参张数 (count 模式, 默认 3)
               --split-seed        随机划分种子 (默认 42)
               --auto-search-neighbors  自动搜索 kNN (默认 true)
+              --auto-search-ann-probes 自动搜索 ANN 探测簇 (默认 true，需启用 ANN 且有 NG 调参样本)
               --backbone-id  Backbone 标识 (wide_resnet50_2 / resnet18 / ...)
               --backbone     直接指定 ONNX 路径 (等同 custom)
               --image-size 输入尺寸 (默认 224)
               --patch-size 局部聚合窗口 (默认 3)
               --neighbors  kNN 邻居数 (默认 9)
               --coreset    coreset 采样比例 (默认 0.1)
+              --embed-dim  特征维度 TargetEmbedDimension (默认 1024，须与 ONNX 导出一致)
               --threshold  异常阈值 (默认 0.5)
               --no-heatmap 仅输出分数与判定，不生成热力图
               --distance-metric  距离度量 Euclidean / SquaredEuclidean (默认 SquaredEuclidean)

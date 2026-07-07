@@ -7,6 +7,7 @@ public sealed class TrainResult
     public required int MemoryBankSize { get; init; }
     public required float Threshold { get; init; }
     public required int NumNeighbors { get; init; }
+    public int AnnProbeClusters { get; init; }
     public required TimeSpan Elapsed { get; init; }
     public TuningMetrics? TuningMetrics { get; init; }
     public TuningMetrics? TestMetrics { get; init; }
@@ -32,6 +33,7 @@ public sealed class TrainAndTuneRequest
     public required string ProfileName { get; init; }
     public required PatchCoreConfig Config { get; init; }
     public bool AutoSearchNeighbors { get; init; } = true;
+    public bool AutoSearchAnnProbes { get; init; } = true;
     public DatasetSplitOptions SplitOptions { get; init; } = new();
 }
 
@@ -171,6 +173,8 @@ public sealed class PatchCoreService
 
         var finalNeighbors = model.NumNeighbors;
 
+        var finalAnnProbes = resolvedConfig.AnnProbeClusters;
+
 
 
         if (split.CanTune)
@@ -221,6 +225,48 @@ public sealed class PatchCoreService
 
             finalNeighbors = tuning.NumNeighbors;
 
+            finalAnnProbes = tuning.AnnProbeClusters > 0 ? tuning.AnnProbeClusters : finalAnnProbes;
+
+
+
+            if (resolvedConfig.UseApproximateNearestNeighbors && request.AutoSearchAnnProbes)
+
+            {
+
+                var annTuning = log.Run(
+
+                    "OK/NG调参-ANN",
+
+                    () => ParameterTuner.TuneAnnProbeClusters(
+
+                        model,
+
+                        resolvedConfig,
+
+                        split.OkTunePaths,
+
+                        split.NgTunePaths,
+
+                        finalNeighbors,
+
+                        progress: progress),
+
+                    $"k={finalNeighbors}, 聚类数={resolvedConfig.AnnClusterCount}",
+
+                    metrics =>
+
+                        $"最佳 probes={metrics.AnnProbeClusters}, 阈值={metrics.Threshold:F4}, F1={metrics.F1:P1}");
+
+
+
+                finalThreshold = annTuning.Threshold;
+
+                finalAnnProbes = annTuning.AnnProbeClusters;
+
+                tuning = annTuning;
+
+            }
+
         }
 
         else if (split.NgTunePaths.Count == 0 && split.NgTestPaths.Count == 0)
@@ -241,7 +287,7 @@ public sealed class PatchCoreService
 
 
 
-        model = model.WithTunedParams(finalThreshold, finalNeighbors);
+        model = model.WithTunedParams(finalThreshold, finalNeighbors, finalAnnProbes);
 
 
 
@@ -259,7 +305,7 @@ public sealed class PatchCoreService
 
                     model,
 
-                    resolvedConfig,
+                    resolvedConfig.WithAnnProbeClusters(finalAnnProbes),
 
                     finalNeighbors,
 
@@ -314,6 +360,8 @@ public sealed class PatchCoreService
             Threshold = finalThreshold,
 
             NumNeighbors = finalNeighbors,
+
+            AnnProbeClusters = finalAnnProbes,
 
             Elapsed = log.TotalElapsed,
 

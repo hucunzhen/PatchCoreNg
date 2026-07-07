@@ -40,6 +40,13 @@ public sealed class PatchCoreTrainer : IDisposable
             imagePaths, _config.ImageSize, _config.PreprocessParallelism, log, "训练-预处理");
         var featureMaps = FeaturePipeline.ExtractFeatureMaps(
             _extractor, tensors, _config.InferenceBatchSize, log, "训练-特征提取");
+        EmbedDimension.EnsureFeatureMapMatches(
+            featureMaps[0],
+            _config.TargetEmbedDimension,
+            _config.BackboneOnnxPath,
+            _config.BackboneId,
+            _config.ImageSize);
+        log.Info("训练", $"特征维度={featureMaps[0].Channels} (TargetEmbedDimension={_config.TargetEmbedDimension})");
         var allPatches = FeaturePipeline.ExtractPatches(
             featureMaps, _config.PatchSize, _config.PreprocessParallelism, log, "训练-Patch聚合");
         var coreset = CoresetSampler.Sample(allPatches.ToArray(), _config.CoresetRatio, log, "训练-Coreset采样");

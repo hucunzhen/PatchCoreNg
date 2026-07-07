@@ -81,10 +81,12 @@ public sealed class PatchCoreModel
         if (model.MemoryBank[0] is null || model.MemoryBank[0].Length == 0)
             throw new InvalidDataException($"模型 Memory Bank 向量维度为 0: {path}");
 
+        EmbedDimension.EnsureMemoryBankMatches(model, path);
+
         return model;
     }
 
-    public PatchCoreModel WithTunedParams(float threshold, int numNeighbors) => new()
+    public PatchCoreModel WithTunedParams(float threshold, int numNeighbors, int? annProbeClusters = null) => new()
     {
         Version = Version,
         BackboneId = BackboneId,
@@ -103,6 +105,6 @@ public sealed class PatchCoreModel
         FeatureMapDownscale = FeatureMapDownscale,
         UseApproximateNearestNeighbors = UseApproximateNearestNeighbors,
         AnnClusterCount = AnnClusterCount,
-        AnnProbeClusters = AnnProbeClusters,
+        AnnProbeClusters = annProbeClusters ?? AnnProbeClusters,
     };
 }

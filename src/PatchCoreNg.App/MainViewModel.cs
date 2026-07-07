@@ -27,6 +27,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _okDataPath = string.Empty;
     private string _ngDataPath = string.Empty;
     private bool _autoSearchNeighbors = true;
+    private bool _autoSearchAnnProbes = true;
     private string _tuneResultText = string.Empty;
     private string _testResultText = string.Empty;
     private string _modelOutputDir = "models";
@@ -104,6 +105,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         nameof(ModelOutputDir),
         nameof(ModelPath),
         nameof(AutoSearchNeighbors),
+        nameof(AutoSearchAnnProbes),
         nameof(SelectedBackboneId),
         nameof(BackboneOnnxPath),
         nameof(ImageSize),
@@ -237,6 +239,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             if (SetField(ref _autoSearchNeighbors, value))
                 _settings.AutoSearchNeighbors = value;
+        }
+    }
+
+    public bool AutoSearchAnnProbes
+    {
+        get => _autoSearchAnnProbes;
+        set
+        {
+            if (SetField(ref _autoSearchAnnProbes, value))
+                _settings.AutoSearchAnnProbes = value;
         }
     }
 
@@ -574,7 +586,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string ImageSize
     {
         get => _settings.ImageSize.ToString();
-        set => UpdateIntSetting(value, v => _settings.ImageSize = v, nameof(ImageSize));
+        set
+        {
+            if (int.TryParse(value, out var parsed))
+                _settings.ImageSize = parsed;
+            OnPropertyChanged(nameof(ImageSize));
+            UpdateBackboneUi();
+        }
     }
 
     public string PatchSize
@@ -606,7 +624,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string TargetEmbedDimension
     {
         get => _settings.TargetEmbedDimension.ToString();
-        set => UpdateIntSetting(value, v => _settings.TargetEmbedDimension = v, nameof(TargetEmbedDimension));
+        set
+        {
+            if (int.TryParse(value, out var parsed))
+                _settings.TargetEmbedDimension = parsed;
+            OnPropertyChanged(nameof(TargetEmbedDimension));
+            UpdateBackboneUi();
+        }
     }
 
     public string AnomalyThreshold
@@ -686,8 +710,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             SelectedBackboneId,
             IsCustomBackbone ? _settings.CustomBackboneOnnxPath : null);
         BackboneExportHint = IsCustomBackbone
-            ? "自定义模式：请浏览选择已导出的 ONNX 文件"
-            : $"导出命令: {BackboneCatalog.GetExportCommand(SelectedBackboneId)}";
+            ? "自定义模式：请浏览选择已导出的 ONNX 文件（输出通道须与特征维度一致）"
+            : $"导出命令: {BackboneCatalog.GetExportCommand(
+                SelectedBackboneId,
+                ParsePositiveInt(TargetEmbedDimension),
+                ParsePositiveInt(ImageSize))}";
     }
 
     private void BrowseOkData()
@@ -986,6 +1013,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _settings.OkDataPath = OkDataPath;
         _settings.NgDataPath = NgDataPath;
         _settings.AutoSearchNeighbors = AutoSearchNeighbors;
+        _settings.AutoSearchAnnProbes = AutoSearchAnnProbes;
         _settings.ModelOutputDir = ModelOutputDir;
         _settings.ProfileName = profileName;
         _settings.NormalizeModelOutputDir();
@@ -1109,6 +1137,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _settings.NgTuneCount = settings.NgTuneCount;
             _settings.SplitSeed = settings.SplitSeed;
             _settings.AutoSearchNeighbors = settings.AutoSearchNeighbors;
+            _settings.AutoSearchAnnProbes = settings.AutoSearchAnnProbes;
             _settings.UseGpu = settings.UseGpu;
             _settings.GpuDeviceId = settings.GpuDeviceId;
             _settings.InferenceBatchSize = settings.InferenceBatchSize;
@@ -1140,6 +1169,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(NgTuneCount));
             OnPropertyChanged(nameof(SplitSeed));
             AutoSearchNeighbors = settings.AutoSearchNeighbors;
+            AutoSearchAnnProbes = settings.AutoSearchAnnProbes;
             ModelOutputDir = _settings.ModelOutputDir;
             SyncModelPathsFromProfile();
             OnPropertyChanged(nameof(ImageSize));
@@ -1195,6 +1225,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 ProfileName = _activeProfileName,
                 Config = config,
                 AutoSearchNeighbors = AutoSearchNeighbors,
+                AutoSearchAnnProbes = AutoSearchAnnProbes,
                 SplitOptions = _settings.ToSplitOptions()
             }, progress));
 
@@ -1211,11 +1242,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
             {
                 _settings.NumNeighbors = m.NumNeighbors;
                 _settings.AnomalyThreshold = m.Threshold;
+                if (m.AnnProbeClusters > 0)
+                    _settings.AnnProbeClusters = m.AnnProbeClusters;
                 OnPropertyChanged(nameof(NumNeighbors));
                 OnPropertyChanged(nameof(AnomalyThreshold));
+                if (m.AnnProbeClusters > 0)
+                    OnPropertyChanged(nameof(AnnProbeClusters));
 
+                var annHint = m.AnnProbeClusters > 0 ? $" | ANN探测簇={m.AnnProbeClusters}" : string.Empty;
                 TuneResultText =
-                    $"调参完成 | 阈值={m.Threshold:F4} | kNN={m.NumNeighbors} | " +
+                    $"调参完成 | 阈值={m.Threshold:F4} | kNN={m.NumNeighbors}{annHint} | " +
                     $"F1={m.F1:P1} | 准确率={m.Accuracy:P1} | 精确率={m.Precision:P1} | 召回率={m.Recall:P1} | " +
                     $"TP={m.TruePositive} TN={m.TrueNegative} FP={m.FalsePositive} FN={m.FalseNegative}";
                 AppendTrainLog(TuneResultText);
@@ -1352,9 +1388,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return false;
         }
 
-        if (!int.TryParse(TargetEmbedDimension, out var embedDim) || embedDim < 1)
+        if (!int.TryParse(TargetEmbedDimension, out var embedDim) || embedDim < EmbedDimension.Min || embedDim > EmbedDimension.Max)
         {
-            error = "特征维度必须是大于 0 的整数。";
+            error = $"特征维度必须是 {EmbedDimension.Min}~{EmbedDimension.Max} 的整数。";
             return false;
         }
 
@@ -1457,12 +1493,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         if (!File.Exists(onnxPath))
         {
-            error = $"Backbone ONNX 不存在: {onnxPath}\n请运行: {BackboneCatalog.GetExportCommand(SelectedBackboneId)}";
+            error = $"Backbone ONNX 不存在: {onnxPath}\n请运行: {BackboneCatalog.GetExportCommand(
+                SelectedBackboneId,
+                embedDim,
+                imageSize)}";
             return false;
         }
 
         return true;
     }
+
+    private static int? ParsePositiveInt(string value) =>
+        int.TryParse(value, out var parsed) && parsed > 0 ? parsed : null;
 
     private void UpdateDoubleSetting(string value, Action<double> setter, string propertyName)
     {

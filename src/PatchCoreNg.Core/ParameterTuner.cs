@@ -4,6 +4,7 @@ public sealed class TuningMetrics
 {
     public required float Threshold { get; init; }
     public required int NumNeighbors { get; init; }
+    public int AnnProbeClusters { get; init; }
     public required float Accuracy { get; init; }
     public required float Precision { get; init; }
     public required float Recall { get; init; }
@@ -21,8 +22,20 @@ public static class ParameterTuner
 {
 
     public static readonly int[] DefaultNeighborCandidates = [1, 3, 5, 9, 15];
+    public static readonly int[] DefaultAnnProbePresets = [1, 2, 4, 6, 8, 12, 16, 24, 32];
 
+    public static int[] BuildAnnProbeCandidates(int annClusterCount, IEnumerable<int>? customCandidates = null)
+    {
+        annClusterCount = Math.Max(1, annClusterCount);
+        var candidates = (customCandidates ?? DefaultAnnProbePresets)
+            .Append(annClusterCount)
+            .Where(p => p >= 1 && p <= annClusterCount)
+            .Distinct()
+            .OrderBy(p => p)
+            .ToArray();
 
+        return candidates.Length > 0 ? candidates : [1];
+    }
 
     public static TuningMetrics Tune(
 
@@ -44,11 +57,72 @@ public static class ParameterTuner
 
 
 
-        return FindBestThreshold(okScores, ngScores, numNeighbors);
-
+        return FindBestThreshold(okScores, ngScores, numNeighbors, config.AnnProbeClusters);
     }
 
+    public static TuningMetrics TuneAnnProbeClusters(
+        PatchCoreModel model,
+        PatchCoreConfig config,
+        IReadOnlyList<string> okPaths,
+        IReadOnlyList<string> ngPaths,
+        int numNeighbors,
+        IEnumerable<int>? probeCandidates = null,
+        IProgress<string>? progress = null)
+    {
+        if (!config.UseApproximateNearestNeighbors)
+            throw new InvalidOperationException("ANN 探测簇搜索需要先启用近似 ANN。");
 
+        var log = new StepProgress(progress);
+        var candidates = BuildAnnProbeCandidates(config.AnnClusterCount, probeCandidates);
+        log.Begin(
+            "调参-ANN探测簇",
+            $"候选 probes={string.Join(",", candidates)} | 聚类数={config.AnnClusterCount} | k={numNeighbors} | OK={okPaths.Count} NG={ngPaths.Count}");
+
+        var searchWatch = System.Diagnostics.Stopwatch.StartNew();
+        TuningMetrics? best = null;
+
+        foreach (var probes in candidates)
+        {
+            var probeConfig = config.WithAnnProbeClusters(probes);
+            var metrics = log.Run(
+                $"调参-ANN探测={probes}",
+                () =>
+                {
+                    var okScores = ScoreImages(model, probeConfig, numNeighbors, okPaths, log, $"调参-ANN{probes}-OK");
+                    var ngScores = ScoreImages(model, probeConfig, numNeighbors, ngPaths, log, $"调参-ANN{probes}-NG");
+                    return FindBestThreshold(okScores, ngScores, numNeighbors, probes);
+                },
+                $"OK={okPaths.Count}, NG={ngPaths.Count}",
+                result => $"阈值={result.Threshold:F4}, F1={result.F1:P1}");
+
+            if (IsAnnProbeBetter(metrics, best))
+                best = metrics;
+        }
+
+        searchWatch.Stop();
+        log.End(
+            "调参-ANN探测簇",
+            searchWatch.Elapsed,
+            best is null
+                ? "无结果"
+                : $"最佳 probes={best.AnnProbeClusters}, 阈值={best.Threshold:F4}, F1={best.F1:P1}");
+
+        return best ?? throw new InvalidOperationException("ANN 探测簇调参失败。");
+    }
+
+    private static bool IsAnnProbeBetter(TuningMetrics candidate, TuningMetrics? current)
+    {
+        if (current is null)
+            return true;
+
+        if (candidate.F1 > current.F1 + 1e-6f)
+            return true;
+
+        if (Math.Abs(candidate.F1 - current.F1) <= 1e-6f && candidate.AnnProbeClusters < current.AnnProbeClusters)
+            return true;
+
+        return false;
+    }
 
     public static TuningMetrics TuneNeighbors(
 
@@ -98,7 +172,7 @@ public static class ParameterTuner
 
                     var ngScores = ScoreImages(model, config, neighbors, ngPaths, log, $"调参-k{neighbors}-NG");
 
-                    return FindBestThreshold(okScores, ngScores, neighbors);
+                    return FindBestThreshold(okScores, ngScores, neighbors, config.AnnProbeClusters);
 
                 },
 
@@ -175,15 +249,11 @@ public static class ParameterTuner
 
 
     public static TuningMetrics FindBestThreshold(
-
         IReadOnlyList<float> okScores,
-
         IReadOnlyList<float> ngScores,
-
-        int numNeighbors)
-
+        int numNeighbors,
+        int annProbeClusters = 0)
     {
-
         var candidates = okScores.Concat(ngScores)
 
             .Distinct()
@@ -208,7 +278,7 @@ public static class ParameterTuner
 
             var threshold = (candidates[i] + candidates[i + 1]) / 2f;
 
-            var metrics = Evaluate(okScores, ngScores, threshold, numNeighbors);
+            var metrics = Evaluate(okScores, ngScores, threshold, numNeighbors, annProbeClusters);
 
             if (best is null || metrics.F1 > best.F1)
 
@@ -226,7 +296,7 @@ public static class ParameterTuner
 
         {
 
-            var metrics = Evaluate(okScores, ngScores, threshold, numNeighbors);
+            var metrics = Evaluate(okScores, ngScores, threshold, numNeighbors, annProbeClusters);
 
             if (best is null || metrics.F1 > best.F1)
 
@@ -243,25 +313,16 @@ public static class ParameterTuner
 
 
     public static TuningMetrics EvaluateAtScores(
-
         IReadOnlyList<float> okScores,
-
         IReadOnlyList<float> ngScores,
-
         float threshold,
-
-        int numNeighbors)
-
+        int numNeighbors,
+        int annProbeClusters = 0)
     {
-
         if (okScores.Count == 0 || ngScores.Count == 0)
-
             throw new InvalidOperationException("评估需要至少 1 张 OK 样本和 1 张 NG 样本。");
 
-
-
-        return Evaluate(okScores, ngScores, threshold, numNeighbors);
-
+        return Evaluate(okScores, ngScores, threshold, numNeighbors, annProbeClusters);
     }
 
 
@@ -312,7 +373,7 @@ public static class ParameterTuner
 
             "测试-指标计算",
 
-            () => EvaluateAtScores(okScores, ngScores, threshold, numNeighbors),
+            () => EvaluateAtScores(okScores, ngScores, threshold, numNeighbors, config.AnnProbeClusters),
 
             $"阈值={threshold:F4}, k={numNeighbors}",
 
@@ -325,17 +386,12 @@ public static class ParameterTuner
 
 
     private static TuningMetrics Evaluate(
-
         IReadOnlyList<float> okScores,
-
         IReadOnlyList<float> ngScores,
-
         float threshold,
-
-        int numNeighbors)
-
+        int numNeighbors,
+        int annProbeClusters = 0)
     {
-
         var tp = ngScores.Count(s => s > threshold);
 
         var fn = ngScores.Count - tp;
@@ -365,7 +421,7 @@ public static class ParameterTuner
             Threshold = threshold,
 
             NumNeighbors = numNeighbors,
-
+            AnnProbeClusters = annProbeClusters,
             Accuracy = accuracy,
 
             Precision = precision,

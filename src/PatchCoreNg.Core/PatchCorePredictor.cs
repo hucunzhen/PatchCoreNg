@@ -60,6 +60,12 @@ public sealed class PatchCorePredictor : IDisposable
 
         var featureMap = _extractor.Extract(tensor);
         timing.FeatureExtract = watch.Elapsed;
+        EmbedDimension.EnsureFeatureMapMatches(
+            featureMap,
+            _config.TargetEmbedDimension,
+            _config.BackboneOnnxPath,
+            _config.BackboneId,
+            _config.ImageSize);
 
         return ScoreAndCreateResult(imagePath, featureMap, outputDir, timing);
     }

@@ -28,6 +28,7 @@ public sealed class PatchCoreSettings
     public int SplitSeed { get; set; } = 42;
     public string ModelOutputDir { get; set; } = "models";
     public bool AutoSearchNeighbors { get; set; } = true;
+    public bool AutoSearchAnnProbes { get; set; } = true;
     public bool UseGpu { get; set; } = true;
     public int GpuDeviceId { get; set; }
     public int InferenceBatchSize { get; set; } = 8;

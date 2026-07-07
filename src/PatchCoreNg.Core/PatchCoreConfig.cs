@@ -25,6 +25,32 @@ public sealed class PatchCoreConfig
     public int AnnClusterCount { get; init; } = 32;
     public int AnnProbeClusters { get; init; } = 4;
 
+    public PatchCoreConfig WithAnnProbeClusters(int annProbeClusters) => new()
+    {
+        BackboneId = BackboneId,
+        CustomBackboneOnnxPath = CustomBackboneOnnxPath,
+        BackboneOnnxPath = BackboneOnnxPath,
+        ImageSize = ImageSize,
+        PatchSize = PatchSize,
+        NumNeighbors = NumNeighbors,
+        CoresetRatio = CoresetRatio,
+        TargetEmbedDimension = TargetEmbedDimension,
+        AnomalyThreshold = AnomalyThreshold,
+        UseManualThreshold = UseManualThreshold,
+        UseGpu = UseGpu,
+        GpuDeviceId = GpuDeviceId,
+        InferenceBatchSize = InferenceBatchSize,
+        PreprocessParallelism = PreprocessParallelism,
+        SaveHeatmap = SaveHeatmap,
+        DistanceMetric = DistanceMetric,
+        UseSimdDistance = UseSimdDistance,
+        PatchScoreParallelism = PatchScoreParallelism,
+        FeatureMapDownscale = FeatureMapDownscale,
+        UseApproximateNearestNeighbors = UseApproximateNearestNeighbors,
+        AnnClusterCount = AnnClusterCount,
+        AnnProbeClusters = annProbeClusters,
+    };
+
     public static readonly float[] ImageNetMean = [0.485f, 0.456f, 0.406f];
     public static readonly float[] ImageNetStd = [0.229f, 0.224f, 0.225f];
 }
