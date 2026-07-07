@@ -10,7 +10,6 @@ public static class ConsoleLog
 {
     private static readonly object Gate = new();
     private static bool _initialized;
-    private static bool _allocated;
 
     public static bool IsEnabled => _initialized;
 
@@ -30,8 +29,6 @@ public static class ConsoleLog
                 {
                     if (!AllocConsole())
                         return;
-
-                    _allocated = true;
                 }
 
                 SetConsoleTitle(title);

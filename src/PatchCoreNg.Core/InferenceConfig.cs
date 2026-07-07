@@ -50,13 +50,13 @@ public static class InferenceConfig
             InferenceBatchSize = userConfig.InferenceBatchSize,
             PreprocessParallelism = userConfig.PreprocessParallelism,
             SaveHeatmap = userConfig.SaveHeatmap,
+            UseApproximateNearestNeighbors = model.UseApproximateNearestNeighbors,
+            AnnClusterCount = model.AnnClusterCount,
+            AnnProbeClusters = model.AnnProbeClusters,
             DistanceMetric = model.DistanceMetric,
-            UseSimdDistance = userConfig.UseSimdDistance,
-            PatchScoreParallelism = userConfig.PatchScoreParallelism,
-            FeatureMapDownscale = userConfig.FeatureMapDownscale,
-            UseApproximateNearestNeighbors = userConfig.UseApproximateNearestNeighbors,
-            AnnClusterCount = userConfig.AnnClusterCount,
-            AnnProbeClusters = userConfig.AnnProbeClusters,
+            UseSimdDistance = model.UseSimdDistance,
+            PatchScoreParallelism = model.PatchScoreParallelism,
+            FeatureMapDownscale = model.FeatureMapDownscale,
         };
     }
 }

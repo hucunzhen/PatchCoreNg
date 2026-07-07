@@ -63,5 +63,6 @@ if (-not (Test-Path $dll)) {
 if (Test-Path $dll) {
     Write-Host "Built: $dll"
 } else {
-    throw "Native build failed: patchcore_native.dll not found under $build"
+    Write-Error "Native build failed: patchcore_native.dll not found under $build"
+    exit 1
 }

@@ -23,6 +23,7 @@ public sealed class PredictBatchResult
 {
     public required IReadOnlyList<TimedPredictionResult> Items { get; init; }
     public required TimeSpan TotalElapsed { get; init; }
+    public string KnnsBackend { get; init; } = string.Empty;
 }
 
 public sealed class TrainAndTuneRequest
@@ -484,6 +485,7 @@ public sealed class PatchCoreService
         {
             Items = items,
             TotalElapsed = log.TotalElapsed,
+            KnnsBackend = predictor.KnnsBackend,
         };
 
     }

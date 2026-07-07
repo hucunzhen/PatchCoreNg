@@ -12,7 +12,11 @@ target_include_directories(patchcore_native PUBLIC include)
 target_compile_definitions(patchcore_native PRIVATE PCN_EXPORTS)
 
 if(MSVC)
-    target_compile_options(patchcore_native PRIVATE /O2 /fp:fast /arch:AVX2)
+    target_compile_options(patchcore_native PRIVATE
+        "$<$<CONFIG:Release>:/O2;/fp:fast;/arch:AVX2>"
+        "$<$<CONFIG:RelWithDebInfo>:/O2;/fp:fast;/arch:AVX2>"
+        "$<$<CONFIG:MinSizeRel>:/O2;/fp:fast;/arch:AVX2>"
+    )
     if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
         find_package(OpenMP)
         if(OpenMP_CXX_FOUND)

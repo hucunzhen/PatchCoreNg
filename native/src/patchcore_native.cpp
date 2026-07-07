@@ -16,8 +16,27 @@
 namespace {
 
 thread_local std::string g_last_error;
+thread_local std::vector<char> tls_visited;
+thread_local std::vector<float> tls_topk;
+thread_local std::vector<float> tls_probe_dists;
+thread_local std::vector<int> tls_probe_idx;
+thread_local std::vector<int> tls_probes;
 
 void set_error(const std::string& msg) { g_last_error = msg; }
+
+void reset_topk(int k) {
+    if (static_cast<int>(tls_topk.size()) < k)
+        tls_topk.assign(k, std::numeric_limits<float>::max());
+    else
+        std::fill(tls_topk.begin(), tls_topk.begin() + k, std::numeric_limits<float>::max());
+}
+
+void reset_visited(int bank_count) {
+    if (static_cast<int>(tls_visited.size()) < bank_count)
+        tls_visited.assign(bank_count, 0);
+    else
+        std::memset(tls_visited.data(), 0, bank_count);
+}
 
 float squared_distance_scalar(const float* a, const float* b, int dim) {
     float sum = 0.0f;
@@ -61,6 +80,51 @@ float squared_distance(const float* a, const float* b, int dim, bool use_simd) {
     return squared_distance_scalar(a, b, dim);
 }
 
+void select_probe_clusters(
+    const float* query,
+    const float* centroids,
+    int cluster_count,
+    int dim,
+    bool use_simd,
+    int probe_clusters,
+    int* out_indices) {
+    probe_clusters = std::max(1, std::min(probe_clusters, cluster_count));
+    if (static_cast<int>(tls_probe_dists.size()) < probe_clusters)
+        tls_probe_dists.assign(probe_clusters, std::numeric_limits<float>::max());
+    else
+        std::fill(tls_probe_dists.begin(), tls_probe_dists.begin() + probe_clusters, std::numeric_limits<float>::max());
+
+    if (static_cast<int>(tls_probe_idx.size()) < probe_clusters)
+        tls_probe_idx.assign(probe_clusters, -1);
+    else
+        std::fill(tls_probe_idx.begin(), tls_probe_idx.begin() + probe_clusters, -1);
+
+    float* best_dists = tls_probe_dists.data();
+    int* best_idx = tls_probe_idx.data();
+
+    for (int c = 0; c < cluster_count; ++c) {
+        const float d = squared_distance(
+            query,
+            centroids + static_cast<size_t>(c) * dim,
+            dim,
+            use_simd);
+        for (int i = 0; i < probe_clusters; ++i) {
+            if (d < best_dists[i]) {
+                for (int j = probe_clusters - 1; j > i; --j) {
+                    best_dists[j] = best_dists[j - 1];
+                    best_idx[j] = best_idx[j - 1];
+                }
+                best_dists[i] = d;
+                best_idx[i] = c;
+                break;
+            }
+        }
+    }
+
+    for (int i = 0; i < probe_clusters; ++i)
+        out_indices[i] = best_idx[i];
+}
+
 void insert_topk_squared(float* topk, int k, float squared) {
     int max_idx = 0;
     for (int i = 1; i < k; ++i) {
@@ -100,13 +164,14 @@ float score_query_bruteforce(
     int k,
     int metric,
     bool use_simd) {
-    std::vector<float> topk(k, std::numeric_limits<float>::max());
+    reset_topk(k);
+    float* topk = tls_topk.data();
     for (int i = 0; i < bank_count; ++i) {
         const float* candidate = bank + static_cast<size_t>(i) * dim;
         const float sq = squared_distance(query, candidate, dim, use_simd);
-        insert_topk_squared(topk.data(), k, sq);
+        insert_topk_squared(topk, k, sq);
     }
-    return average_topk(topk.data(), k, metric);
+    return average_topk(topk, k, metric);
 }
 
 struct AnnIndex {
@@ -190,29 +255,31 @@ float score_query_ann(
     const AnnIndex& ann,
     int probe_clusters) {
     probe_clusters = std::max(1, std::min(probe_clusters, ann.cluster_count));
-    std::vector<std::pair<int, float>> ranked(ann.cluster_count);
-    for (int c = 0; c < ann.cluster_count; ++c) {
-        const float* centroid = ann.centroids.data() + static_cast<size_t>(c) * dim;
-        ranked[c] = {c, squared_distance(query, centroid, dim, use_simd)};
-    }
-    std::partial_sort(
-        ranked.begin(),
-        ranked.begin() + probe_clusters,
-        ranked.end(),
-        [](const auto& a, const auto& b) { return a.second < b.second; });
+    if (static_cast<int>(tls_probes.size()) < probe_clusters)
+        tls_probes.resize(probe_clusters);
+    select_probe_clusters(
+        query,
+        ann.centroids.data(),
+        ann.cluster_count,
+        dim,
+        use_simd,
+        probe_clusters,
+        tls_probes.data());
 
-    std::vector<float> topk(k, std::numeric_limits<float>::max());
-    std::vector<char> visited(static_cast<size_t>(bank_count), 0);
+    reset_topk(k);
+    reset_visited(bank_count);
+    float* topk = tls_topk.data();
+    char* visited = tls_visited.data();
 
     for (int p = 0; p < probe_clusters; ++p) {
-        const int cluster_idx = ranked[p].first;
+        const int cluster_idx = tls_probes[p];
         for (int emb_idx : ann.clusters[cluster_idx]) {
             if (visited[emb_idx])
                 continue;
             visited[emb_idx] = 1;
             const float* candidate = bank + static_cast<size_t>(emb_idx) * dim;
             const float sq = squared_distance(query, candidate, dim, use_simd);
-            insert_topk_squared(topk.data(), k, sq);
+            insert_topk_squared(topk, k, sq);
         }
     }
 
@@ -224,7 +291,7 @@ float score_query_ann(
     if (count_valid < k)
         return score_query_bruteforce(query, bank, bank_count, dim, k, metric, use_simd);
 
-    return average_topk(topk.data(), k, metric);
+    return average_topk(topk, k, metric);
 }
 
 void aggregate_patch(

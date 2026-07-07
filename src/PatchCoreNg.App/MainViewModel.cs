@@ -74,6 +74,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         BrowseParamsConfigDirCommand = new RelayCommand(_ => BrowseParamsConfigDir());
         BrowseBackboneCommand = new RelayCommand(_ => BrowseBackbone(), _ => IsCustomBackbone);
+        ExportBackboneCommand = new AsyncRelayCommand(_ => ExportBackboneAsync(), _ => CanExportBackbone());
         SaveParamsCommand = new RelayCommand(_ => SaveCurrentProfile(), _ => !IsBusy && !string.IsNullOrWhiteSpace(SelectedProfile));
         SaveProfileAsCommand = new RelayCommand(_ => SaveProfileAs(), _ => !IsBusy);
         NewProfileCommand = new RelayCommand(_ => NewProfile(), _ => !IsBusy);
@@ -680,6 +681,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public RelayCommand BrowseParamsConfigDirCommand { get; }
     public RelayCommand BrowseBackboneCommand { get; }
+    public AsyncRelayCommand ExportBackboneCommand { get; }
     public RelayCommand SaveParamsCommand { get; }
     public RelayCommand SaveProfileAsCommand { get; }
     public RelayCommand NewProfileCommand { get; }
@@ -702,6 +704,52 @@ public sealed class MainViewModel : INotifyPropertyChanged
         && (InferSingleImage ? File.Exists(InferInputPath) : Directory.Exists(InferInputPath))
         && TryBuildConfig(out _);
 
+    private bool CanExportBackbone() =>
+        !IsBusy && !IsCustomBackbone;
+
+    private async Task ExportBackboneAsync()
+    {
+        var imageSize = ParsePositiveInt(ImageSize) ?? 224;
+        var targetDim = ParsePositiveInt(TargetEmbedDimension) ?? 1024;
+        var option = BackboneCatalog.Get(SelectedBackboneId);
+
+        IsBusy = true;
+        try
+        {
+            var progress = new Progress<string>(line => AppendTrainLog(line));
+            AppendTrainLog($"开始导出 {option.DisplayName} ONNX...");
+            var result = await BackboneExporter.ExportAsync(
+                SelectedBackboneId,
+                imageSize,
+                targetDim,
+                progress);
+
+            if (result.Success)
+            {
+                _settings.SyncBackbonePath();
+                OnPropertyChanged(nameof(BackboneOnnxPath));
+                UpdateBackboneUi();
+                System.Windows.Input.CommandManager.InvalidateRequerySuggested();
+                MessageBox.Show(result.Message, "导出成功", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            else
+            {
+                AppendTrainLog(result.Message);
+                MessageBox.Show(result.Message, "导出失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendTrainLog($"导出错误: {ex.Message}");
+            MessageBox.Show(ex.Message, "导出失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            IsBusy = false;
+            System.Windows.Input.CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
     private void UpdateBackboneUi()
     {
         var option = BackboneCatalog.Get(SelectedBackboneId);
@@ -711,10 +759,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             IsCustomBackbone ? _settings.CustomBackboneOnnxPath : null);
         BackboneExportHint = IsCustomBackbone
             ? "自定义模式：请浏览选择已导出的 ONNX 文件（输出通道须与特征维度一致）"
-            : $"导出命令: {BackboneCatalog.GetExportCommand(
-                SelectedBackboneId,
-                ParsePositiveInt(TargetEmbedDimension),
-                ParsePositiveInt(ImageSize))}";
+            : option.IsOnnxAvailable()
+                ? $"ONNX 文件: {Path.GetFileName(option.ResolveAvailableOnnxPath())}"
+                : "ONNX 未导出，请点击「导出 ONNX」（首次会从 PyTorch 下载预训练权重）";
     }
 
     private void BrowseOkData()
@@ -1343,7 +1390,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 ? $"手动阈值={config.AnomalyThreshold:F4}"
                 : "模型自动阈值";
             InferSummary =
-                $"Backbone={BackboneCatalog.Get(SelectedBackboneId).DisplayName} | 完成 {batch.Items.Count} 张 | NG={ngCount} | OK={batch.Items.Count - ngCount} | {thresholdHint}" +
+                $"kNN={batch.KnnsBackend} | Backbone={BackboneCatalog.Get(SelectedBackboneId).DisplayName} | 完成 {batch.Items.Count} 张 | NG={ngCount} | OK={batch.Items.Count - ngCount} | {thresholdHint}" +
                 (config.SaveHeatmap ? "" : " | 仅结果（无热力图）");
             ConsoleLog.WriteLine(InferSummary);
             if (Predictions.LastOrDefault() is { } last)

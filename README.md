@@ -36,9 +36,19 @@ dotnet build src/PatchCoreNg.Core/PatchCoreNg.Core.csproj -c Release
 
 ### 1. 导出 Backbone ONNX
 
+ONNX 不会随仓库下载，需从 PyTorch 预训练权重导出（首次会自动下载权重）：
+
 ```bash
+pip install -r scripts/requirements-export.txt
+
+# 导出全部 backbone
 python scripts/export_backbone.py --all
+
+# 或只导出当前使用的 backbone，例如 MobileNet-V3-Small
+python scripts/export_backbone.py --backbone mobilenet_v3_small
 ```
+
+WPF 界面中也可在 Backbone 旁点击 **「导出 ONNX」** 一键导出。
 
 ### 2. 生成示例数据（可选）
 
