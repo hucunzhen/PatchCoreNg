@@ -145,7 +145,7 @@ public sealed class PatchCoreSettings
     {
         BackboneId = BackboneId,
         CustomBackboneOnnxPath = CustomBackboneOnnxPath,
-        BackboneOnnxPath = BackboneCatalog.ResolveOnnxPath(BackboneId, CustomBackboneOnnxPath),
+        BackboneOnnxPath = BackboneCatalog.ResolveOnnxPath(BackboneId, CustomBackboneOnnxPath, UseGpu),
         ImageSize = ImageSize,
         PatchSize = PatchSize,
         NumNeighbors = NumNeighbors,

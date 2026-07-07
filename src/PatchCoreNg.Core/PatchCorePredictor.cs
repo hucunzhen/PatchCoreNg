@@ -29,6 +29,9 @@ public sealed class PatchCorePredictor : IDisposable
             ? "Managed(C#)"
             : "Managed(C#), native 未加载";
 
+    public string OnnxRuntimeInfo =>
+        $"{_extractor.ModelFileName} | {_extractor.PreprocessMode}/{_extractor.Precision} | {_extractor.SingleRunMode}";
+
     internal FeatureExtractor Extractor => _extractor;
 
     internal MemoryBank MemoryBank => _memoryBank;
@@ -60,7 +63,7 @@ public sealed class PatchCorePredictor : IDisposable
         var timing = new PredictionStageTimingBuilder();
         var watch = Stopwatch.StartNew();
 
-        var tensor = ImagePreprocessor.LoadAndPreprocess(imagePath, _config.ImageSize);
+        var tensor = ImagePreprocessor.LoadAndPreprocess(imagePath, _config.ImageSize, _extractor.PreprocessMode);
         timing.Preprocess = watch.Elapsed;
         watch.Restart();
 

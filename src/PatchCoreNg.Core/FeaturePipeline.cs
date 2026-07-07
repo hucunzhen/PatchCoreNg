@@ -17,16 +17,17 @@ internal static class FeaturePipeline
         return Math.Clamp(configured <= 0 ? 8 : configured, 1, 64);
     }
 
-    public static float[][] PreprocessImages(
+    public static ImageTensor[] PreprocessImages(
         IReadOnlyList<string> imagePaths,
         int imageSize,
+        PreprocessMode mode,
         int parallelism,
         StepProgress? log = null,
         string step = "图像预处理")
     {
-        log?.Begin(step, $"{imagePaths.Count} 张, 并行={ResolvePreprocessParallelism(parallelism)}");
+        log?.Begin(step, $"{imagePaths.Count} 张, 模式={mode}, 并行={ResolvePreprocessParallelism(parallelism)}");
         var watch = Stopwatch.StartNew();
-        var tensors = new float[imagePaths.Count][];
+        var tensors = new ImageTensor[imagePaths.Count];
         var options = new ParallelOptions
         {
             MaxDegreeOfParallelism = ResolvePreprocessParallelism(parallelism),
@@ -35,7 +36,7 @@ internal static class FeaturePipeline
 
         Parallel.For(0, imagePaths.Count, options, i =>
         {
-            tensors[i] = ImagePreprocessor.LoadAndPreprocess(imagePaths[i], imageSize);
+            tensors[i] = ImagePreprocessor.LoadAndPreprocess(imagePaths[i], imageSize, mode);
             var done = i + 1;
             if (log != null && done - lastReport >= 64)
             {
@@ -51,20 +52,22 @@ internal static class FeaturePipeline
 
     public static List<FeatureMap> ExtractFeatureMaps(
         FeatureExtractor extractor,
-        float[][] tensors,
+        ImageTensor[] tensors,
         int batchSize,
         StepProgress? log = null,
         string step = "特征提取")
     {
         batchSize = ResolveBatchSize(batchSize);
-        log?.Begin(step, $"{tensors.Length} 张, batch={batchSize}, 设备={extractor.ExecutionProvider}");
+        log?.Begin(
+            step,
+            $"{tensors.Length} 张, batch={batchSize}, {extractor.DescribeRuntime()}");
         var watch = Stopwatch.StartNew();
         var maps = new List<FeatureMap>(tensors.Length);
 
         for (var offset = 0; offset < tensors.Length; offset += batchSize)
         {
             var count = Math.Min(batchSize, tensors.Length - offset);
-            var batch = new float[count][];
+            var batch = new ImageTensor[count];
             Array.Copy(tensors, offset, batch, 0, count);
             maps.AddRange(extractor.ExtractBatch(batch));
 
@@ -207,6 +210,7 @@ internal static class FeaturePipeline
         var tensors = PreprocessImages(
             imagePaths,
             config.ImageSize,
+            extractor.PreprocessMode,
             config.PreprocessParallelism,
             log,
             $"{prefix}-预处理");

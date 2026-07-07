@@ -441,7 +441,7 @@ public sealed class PatchCoreService
 
         log.Info(
             "批量推理",
-            $"{pathList.Count} 张 | 逐张处理 | 设备={predictor.ExecutionProvider} | kNN={predictor.KnnsBackend} | 热力图={(resolvedConfig.SaveHeatmap ? "开" : "关")}");
+            $"{pathList.Count} 张 | 逐张完整处理 | 设备={predictor.ExecutionProvider} | {predictor.OnnxRuntimeInfo} | kNN={predictor.KnnsBackend} | 热力图={(resolvedConfig.SaveHeatmap ? "开" : "关")}");
 
         if (heatmapOutputDir is not null)
             Directory.CreateDirectory(heatmapOutputDir);
@@ -453,14 +453,12 @@ public sealed class PatchCoreService
             cancellationToken.ThrowIfCancellationRequested();
 
             var imagePath = pathList[i];
-            var itemStopwatch = System.Diagnostics.Stopwatch.StartNew();
             var result = predictor.Predict(imagePath, heatmapOutputDir);
-            itemStopwatch.Stop();
 
             items.Add(new TimedPredictionResult
             {
                 Result = result,
-                Elapsed = result.StageTiming?.Total ?? itemStopwatch.Elapsed,
+                Elapsed = result.StageTiming?.Total ?? TimeSpan.Zero,
             });
 
             var timing = result.StageTiming;
@@ -469,12 +467,6 @@ public sealed class PatchCoreService
                 log.Info("推理", $"{i + 1}/{pathList.Count} {Path.GetFileName(imagePath)} score={result.AnomalyScore:F4} {result.Label}");
                 log.Info("推理-耗时", timing.FormatStages());
                 log.Info("推理-占比", timing.FormatPercentages());
-            }
-            else
-            {
-                log.Info(
-                    "推理",
-                    $"{i + 1}/{pathList.Count} {Path.GetFileName(imagePath)} score={result.AnomalyScore:F4} {result.Label} 耗时={StepProgress.FormatElapsed(itemStopwatch.Elapsed)}");
             }
         }
 

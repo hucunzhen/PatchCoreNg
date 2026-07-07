@@ -56,6 +56,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _backboneStatus = string.Empty;
     private string _backboneDescription = string.Empty;
     private string _backboneExportHint = string.Empty;
+    private bool _exportOnnxFp16 = true;
+    private bool _exportOnnxInt8;
 
     public MainViewModel()
     {
@@ -584,6 +586,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set => SetField(ref _backboneExportHint, value);
     }
 
+    public bool ExportOnnxFp16
+    {
+        get => _exportOnnxFp16;
+        set => SetField(ref _exportOnnxFp16, value);
+    }
+
+    public bool ExportOnnxInt8
+    {
+        get => _exportOnnxInt8;
+        set => SetField(ref _exportOnnxInt8, value);
+    }
+
     public string ImageSize
     {
         get => _settings.ImageSize.ToString();
@@ -712,16 +726,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
         var imageSize = ParsePositiveInt(ImageSize) ?? 224;
         var targetDim = ParsePositiveInt(TargetEmbedDimension) ?? 1024;
         var option = BackboneCatalog.Get(SelectedBackboneId);
+        var exportOptions = new BackboneExportOptions(Fp16: ExportOnnxFp16, Int8: ExportOnnxInt8);
 
         IsBusy = true;
+        BackboneStatus = "正在导出 ONNX...";
         try
         {
             var progress = new Progress<string>(line => AppendTrainLog(line));
-            AppendTrainLog($"开始导出 {option.DisplayName} ONNX...");
+            AppendTrainLog(
+                $"开始导出 {option.DisplayName} ONNX (尺寸={imageSize}, 维度={targetDim}, " +
+                $"FP16={ExportOnnxFp16}, INT8={ExportOnnxInt8})...");
             var result = await BackboneExporter.ExportAsync(
                 SelectedBackboneId,
                 imageSize,
                 targetDim,
+                exportOptions,
                 progress);
 
             if (result.Success)
@@ -729,23 +748,27 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 _settings.SyncBackbonePath();
                 OnPropertyChanged(nameof(BackboneOnnxPath));
                 UpdateBackboneUi();
+                AppendTrainLog(result.Message);
                 System.Windows.Input.CommandManager.InvalidateRequerySuggested();
                 MessageBox.Show(result.Message, "导出成功", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             else
             {
                 AppendTrainLog(result.Message);
+                BackboneStatus = "ONNX 导出失败";
                 MessageBox.Show(result.Message, "导出失败", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
         catch (Exception ex)
         {
             AppendTrainLog($"导出错误: {ex.Message}");
+            BackboneStatus = "ONNX 导出失败";
             MessageBox.Show(ex.Message, "导出失败", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {
             IsBusy = false;
+            UpdateBackboneUi();
             System.Windows.Input.CommandManager.InvalidateRequerySuggested();
         }
     }
@@ -756,12 +779,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
         BackboneDescription = option.Description;
         BackboneStatus = BackboneCatalog.GetStatusText(
             SelectedBackboneId,
-            IsCustomBackbone ? _settings.CustomBackboneOnnxPath : null);
+            IsCustomBackbone ? _settings.CustomBackboneOnnxPath : null,
+            _settings.UseGpu);
+        var loadedPath = IsCustomBackbone
+            ? BackboneOnnxPath
+            : option.ResolveAvailableOnnxPath(_settings.UseGpu);
         BackboneExportHint = IsCustomBackbone
             ? "自定义模式：请浏览选择已导出的 ONNX 文件（输出通道须与特征维度一致）"
-            : option.IsOnnxAvailable()
-                ? $"ONNX 文件: {Path.GetFileName(option.ResolveAvailableOnnxPath())}"
-                : "ONNX 未导出，请点击「导出 ONNX」（首次会从 PyTorch 下载预训练权重）";
+            : File.Exists(loadedPath)
+                ? $"加载: {Path.GetFileName(loadedPath)} | GPU 模式优先 FP16（INT8 在 DirectML 上常更慢）"
+                : "ONNX 未导出：选择 backbone 后点击「导出 ONNX」（首次会下载 PyTorch 权重，需安装 Python）";
     }
 
     private void BrowseOkData()
@@ -1538,7 +1565,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _settings.SyncBackbonePath();
         var onnxPath = BackboneCatalog.ResolveOnnxPath(
             SelectedBackboneId,
-            IsCustomBackbone ? _settings.CustomBackboneOnnxPath : null);
+            IsCustomBackbone ? _settings.CustomBackboneOnnxPath : null,
+            _settings.UseGpu);
 
         if (!File.Exists(onnxPath))
         {

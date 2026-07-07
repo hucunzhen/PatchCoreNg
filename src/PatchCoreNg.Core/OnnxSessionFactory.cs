@@ -9,44 +9,64 @@ public static class OnnxSessionFactory
         bool preferGpu,
         int gpuDeviceId = 0)
     {
-        var options = new SessionOptions
-        {
-            GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
-        };
-
         if (preferGpu)
         {
             try
             {
-                options.AppendExecutionProvider_CUDA(gpuDeviceId);
-                return (new InferenceSession(onnxPath, options), $"CUDA:{gpuDeviceId}");
+                return (CreateSession(onnxPath, ConfigureGpuOptions(gpuDeviceId, useCuda: true)), $"CUDA:{gpuDeviceId}");
             }
             catch (Exception ex)
             {
-                options.Dispose();
-                options = new SessionOptions
-                {
-                    GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
-                };
-
                 try
                 {
-                    options.AppendExecutionProvider_DML(gpuDeviceId);
-                    return (new InferenceSession(onnxPath, options), $"DirectML:{gpuDeviceId}");
+                    return (CreateSession(onnxPath, ConfigureGpuOptions(gpuDeviceId, useCuda: false)), $"DirectML:{gpuDeviceId}");
                 }
                 catch
                 {
-                    options.Dispose();
-                    options = new SessionOptions
-                    {
-                        GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
-                    };
-                    var session = new InferenceSession(onnxPath, options);
+                    var session = CreateSession(onnxPath, ConfigureCpuOptions());
                     return (session, $"CPU (GPU 不可用: {ex.Message})");
                 }
             }
         }
 
-        return (new InferenceSession(onnxPath, options), "CPU");
+        return (CreateSession(onnxPath, ConfigureCpuOptions()), "CPU");
     }
+
+    private static InferenceSession CreateSession(string onnxPath, SessionOptions options)
+    {
+        try
+        {
+            return new InferenceSession(onnxPath, options);
+        }
+        finally
+        {
+            options.Dispose();
+        }
+    }
+
+    private static SessionOptions ConfigureCommonOptions()
+    {
+        var threads = Math.Clamp(Environment.ProcessorCount / 2, 1, 8);
+        return new SessionOptions
+        {
+            GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
+            ExecutionMode = ExecutionMode.ORT_SEQUENTIAL,
+            EnableMemoryPattern = true,
+            EnableCpuMemArena = true,
+            IntraOpNumThreads = threads,
+            InterOpNumThreads = 1,
+        };
+    }
+
+    private static SessionOptions ConfigureGpuOptions(int gpuDeviceId, bool useCuda)
+    {
+        var options = ConfigureCommonOptions();
+        if (useCuda)
+            options.AppendExecutionProvider_CUDA(gpuDeviceId);
+        else
+            options.AppendExecutionProvider_DML(gpuDeviceId);
+        return options;
+    }
+
+    private static SessionOptions ConfigureCpuOptions() => ConfigureCommonOptions();
 }

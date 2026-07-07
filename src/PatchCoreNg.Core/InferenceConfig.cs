@@ -35,7 +35,8 @@ public static class InferenceConfig
         {
             BackboneId = backboneId,
             CustomBackboneOnnxPath = customBackbone,
-            BackboneOnnxPath = AppPaths.Resolve(BackboneCatalog.ResolveOnnxPath(backboneId, customBackbone)),
+            BackboneOnnxPath = AppPaths.Resolve(
+                BackboneCatalog.ResolveOnnxPath(backboneId, customBackbone, userConfig.UseGpu)),
             ImageSize = model.ImageSize,
             PatchSize = model.PatchSize,
             NumNeighbors = model.NumNeighbors,

@@ -32,6 +32,23 @@ dotnet build src/PatchCoreNg.Core/PatchCoreNg.Core.csproj -c Release
 
 构建成功后 DLL 会复制到 Core / App / CLI 输出目录。推理日志会显示 `kNN=Native(C++)` 或 `kNN=Managed(C#)`。
 
+### ONNX 特征提取
+
+**默认导出 fused ONNX**：resize + ImageNet normalize 已并入图内，C# 只读图传 RGB 0~255。GPU 模式优先加载 `_fused_fp16`，CPU 模式优先 `_fused_int8`。
+
+```powershell
+# 默认 fused fp32
+python scripts/export_backbone.py --backbone mobilenet_v3_small
+
+# fused + FP16（推荐 DirectML / CUDA）
+python scripts/export_backbone.py --backbone mobilenet_v3_small --fp16
+
+# 旧版：C# 侧预处理（加 --no-fuse-preprocess）
+python scripts/export_backbone.py --backbone mobilenet_v3_small --no-fuse-preprocess
+```
+
+静态 INT8 校准：`python scripts/quantize_backbone.py --input models/..._fused.onnx --fuse-preprocess --static --calibration-dir data/ok`
+
 ## 快速开始
 
 ### 1. 导出 Backbone ONNX
@@ -41,10 +58,10 @@ ONNX 不会随仓库下载，需从 PyTorch 预训练权重导出（首次会自
 ```bash
 pip install -r scripts/requirements-export.txt
 
-# 导出全部 backbone
+# 导出全部 backbone（默认 fused：resize+normalize 在 ONNX 内）
 python scripts/export_backbone.py --all
 
-# 或只导出当前使用的 backbone，例如 MobileNet-V3-Small
+# 或只导出当前使用的 backbone，例如 MobileNet-V3-Small → models/mobilenet_v3_small_features_fused.onnx
 python scripts/export_backbone.py --backbone mobilenet_v3_small
 ```
 

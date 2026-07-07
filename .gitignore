@@ -5,6 +5,7 @@ output/
 .vs/
 native/build/
 tmp/
+scripts/__pycache__/
 
 # Runtime artifacts
 models/*.onnx

@@ -10,11 +10,15 @@ public sealed record BackboneOption(
 
     public bool IsOnnxAvailable() => File.Exists(ResolveAvailableOnnxPath());
 
-    public string ResolveAvailableOnnxPath()
+    public string ResolveAvailableOnnxPath(bool preferGpu = false)
     {
-        var path = GetResolvedOnnxPath();
-        if (File.Exists(path))
-            return path;
+        if (Id == BackboneCatalog.CustomId || string.IsNullOrWhiteSpace(OnnxRelativePath))
+            return GetResolvedOnnxPath();
+
+        var basePath = GetResolvedOnnxPath();
+        var preferred = BackboneCatalog.ResolvePreferredOnnxVariant(basePath, preferGpu);
+        if (File.Exists(preferred))
+            return preferred;
 
         if (string.Equals(Id, BackboneCatalog.DefaultId, StringComparison.OrdinalIgnoreCase))
         {
@@ -23,7 +27,7 @@ public sealed record BackboneOption(
                 return legacy;
         }
 
-        return path;
+        return basePath;
     }
 }
 
@@ -107,7 +111,7 @@ public static class BackboneCatalog
         return ById[CustomId];
     }
 
-    public static string ResolveOnnxPath(string backboneId, string? customOnnxPath = null)
+    public static string ResolveOnnxPath(string backboneId, string? customOnnxPath = null, bool preferGpu = false)
     {
         var option = Get(backboneId);
         if (option.Id == CustomId)
@@ -115,18 +119,25 @@ public static class BackboneCatalog
             if (string.IsNullOrWhiteSpace(customOnnxPath))
                 throw new InvalidOperationException("自定义 backbone 需要指定 ONNX 路径。");
 
-            return AppPaths.Resolve(customOnnxPath);
+            return ResolvePreferredOnnxVariant(AppPaths.Resolve(customOnnxPath), preferGpu);
         }
 
-        return option.ResolveAvailableOnnxPath();
+        return option.ResolveAvailableOnnxPath(preferGpu);
     }
 
-    public static string GetStatusText(string backboneId, string? customOnnxPath = null)
+    public static string GetStatusText(string backboneId, string? customOnnxPath = null, bool preferGpu = false)
     {
         try
         {
-            var path = ResolveOnnxPath(backboneId, customOnnxPath);
-            return File.Exists(path) ? $"ONNX 已就绪: {Path.GetFileName(path)}" : "ONNX 未导出，请运行 export_backbone.py";
+            var path = ResolveOnnxPath(backboneId, customOnnxPath, preferGpu);
+            if (!File.Exists(path))
+                return "ONNX 未导出，请点击「导出 ONNX」";
+
+            var fileName = Path.GetFileName(path);
+            var hint = preferGpu && fileName.Contains("_int8", StringComparison.OrdinalIgnoreCase)
+                ? "（GPU 下 INT8 可能更慢，建议导出 FP16）"
+                : string.Empty;
+            return $"ONNX 已就绪: {fileName}{hint}";
         }
         catch
         {
@@ -134,15 +145,98 @@ public static class BackboneCatalog
         }
     }
 
-    public static string GetExportCommand(string? backboneId = null, int? targetDim = null, int? imageSize = null)
+    public static string GetExportCommand(
+        string? backboneId = null,
+        int? targetDim = null,
+        int? imageSize = null,
+        bool legacyPreprocess = false,
+        bool fp16 = false,
+        bool int8 = false)
     {
         var dimSuffix = targetDim is > 0 ? $" --target-dim {targetDim.Value}" : string.Empty;
         var sizeSuffix = imageSize is > 0 ? $" --image-size {imageSize.Value}" : string.Empty;
-        var extra = $"{dimSuffix}{sizeSuffix}";
+        var legacySuffix = legacyPreprocess ? " --no-fuse-preprocess" : string.Empty;
+        var fp16Suffix = fp16 ? " --fp16" : string.Empty;
+        var int8Suffix = int8 ? " --int8" : string.Empty;
+        var extra = $"{dimSuffix}{sizeSuffix}{legacySuffix}{fp16Suffix}{int8Suffix}";
 
         if (string.IsNullOrWhiteSpace(backboneId) || string.Equals(backboneId, CustomId, StringComparison.OrdinalIgnoreCase))
             return $"python scripts/export_backbone.py --all{extra}";
 
         return $"python scripts/export_backbone.py --backbone {backboneId}{extra}";
+    }
+
+    /// <summary>
+    /// 选用 fused 变体。GPU(DirectML/CUDA) 优先 FP16（INT8 在 DirectML 上常更慢）；CPU 优先 INT8。
+    /// </summary>
+    public static string ResolvePreferredOnnxVariant(string baseOnnxPath, bool preferGpu = false)
+    {
+        var dir = Path.GetDirectoryName(baseOnnxPath) ?? string.Empty;
+        var fileName = Path.GetFileNameWithoutExtension(baseOnnxPath);
+        var stem = StripVariantSuffix(fileName);
+
+        string[] candidates = preferGpu
+            ?
+            [
+                $"{stem}_fused_fp16.onnx",
+                $"{stem}_fused.onnx",
+                $"{stem}.onnx",
+                $"{stem}_fused_fp16_int8.onnx",
+                $"{stem}_fused_int8.onnx",
+            ]
+            :
+            [
+                $"{stem}_fused_int8.onnx",
+                $"{stem}_fused_fp16_int8.onnx",
+                $"{stem}_fused_fp16.onnx",
+                $"{stem}_fused.onnx",
+                $"{stem}.onnx",
+            ];
+
+        foreach (var candidate in candidates)
+        {
+            var path = Path.Combine(dir, candidate);
+            if (File.Exists(path))
+                return path;
+        }
+
+        return baseOnnxPath;
+    }
+
+    /// <summary>
+    /// 与 export_backbone.py 的 resolve_output_path 一致，用于导出完成后校验文件。
+    /// </summary>
+    public static string ResolveExportOutputPath(
+        string backboneId,
+        string modelsDirectory,
+        bool fusePreprocess = true,
+        bool fp16 = false,
+        bool int8 = false)
+    {
+        var option = Get(backboneId);
+        var stem = StripVariantSuffix(Path.GetFileNameWithoutExtension(option.OnnxRelativePath));
+        var suffix = fusePreprocess ? "_fused" : string.Empty;
+        if (fp16)
+            suffix += "_fp16";
+        if (int8)
+            suffix += "_int8";
+        return Path.Combine(modelsDirectory, $"{stem}{suffix}.onnx");
+    }
+
+    private static string StripVariantSuffix(string stem)
+    {
+        if (stem.EndsWith("_fused_fp16_int8", StringComparison.OrdinalIgnoreCase))
+            return stem[..^"_fused_fp16_int8".Length];
+        if (stem.EndsWith("_fused_int8", StringComparison.OrdinalIgnoreCase))
+            return stem[..^"_fused_int8".Length];
+        if (stem.EndsWith("_fused_fp16", StringComparison.OrdinalIgnoreCase))
+            return stem[..^"_fused_fp16".Length];
+        if (stem.EndsWith("_fused", StringComparison.OrdinalIgnoreCase))
+            return stem[..^"_fused".Length];
+        if (stem.EndsWith("_int8", StringComparison.OrdinalIgnoreCase))
+            return stem[..^"_int8".Length];
+        if (stem.EndsWith("_fp16", StringComparison.OrdinalIgnoreCase))
+            return stem[..^"_fp16".Length];
+        return stem;
     }
 }

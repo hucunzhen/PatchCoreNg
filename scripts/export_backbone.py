@@ -29,6 +29,9 @@ from torchvision.models import (
     wide_resnet50_2,
 )
 
+IMAGENET_MEAN = (0.485, 0.456, 0.406)
+IMAGENET_STD = (0.229, 0.224, 0.225)
+
 
 @dataclass(frozen=True)
 class BackboneSpec:
@@ -44,6 +47,24 @@ BACKBONE_REGISTRY: dict[str, BackboneSpec] = {}
 
 def register(spec: BackboneSpec) -> None:
     BACKBONE_REGISTRY[spec.id] = spec
+
+
+class FusedPreprocessBackbone(nn.Module):
+    """Input: [B,3,H,W] float RGB 0~255 (H=W=image_size, resize 在 C# OpenCV). Normalize + backbone."""
+
+    def __init__(self, backbone: nn.Module, image_size: int) -> None:
+        super().__init__()
+        self.backbone = backbone
+        self.image_size = image_size
+        mean = torch.tensor(IMAGENET_MEAN, dtype=torch.float32).view(1, 3, 1, 1)
+        std = torch.tensor(IMAGENET_STD, dtype=torch.float32).view(1, 3, 1, 1)
+        self.register_buffer("mean", mean)
+        self.register_buffer("std", std)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x / 255.0
+        x = (x - self.mean) / self.std
+        return self.backbone(x)
 
 
 class ResNetStyleBackbone(nn.Module):
@@ -203,7 +224,6 @@ register(BackboneSpec(
     _build_mobilenet_v3_small,
 ))
 
-# 兼容旧文件名
 BACKBONE_ALIASES = {
     "wideresnet50": "wide_resnet50_2",
     "wrn50": "wide_resnet50_2",
@@ -219,39 +239,234 @@ def resolve_backbone_id(name: str) -> str:
     raise ValueError(f"未知 backbone: {name}. 可选: {', '.join(BACKBONE_REGISTRY)}")
 
 
+def build_model(backbone_id: str, target_dim: int, fuse_preprocess: bool, image_size: int) -> nn.Module:
+    spec = BACKBONE_REGISTRY[resolve_backbone_id(backbone_id)]
+    model = spec.builder()
+    if target_dim != 1024:
+        in_channels = model.projection.in_channels
+        model.projection = nn.Conv2d(in_channels, target_dim, kernel_size=1)
+    model.eval()
+    if fuse_preprocess:
+        return FusedPreprocessBackbone(model, image_size)
+    return model
+
+
+def attach_metadata(
+    output: Path,
+    *,
+    fuse_preprocess: bool,
+    precision: str,
+    image_size: int,
+    target_dim: int,
+) -> None:
+    import onnx
+    from onnx import StringStringEntryProto
+
+    model = onnx.load(str(output))
+    keys_to_remove = {
+        "patchcore_preprocess",
+        "patchcore_precision",
+        "patchcore_image_size",
+        "patchcore_target_dim",
+    }
+    for idx in reversed(range(len(model.metadata_props))):
+        if model.metadata_props[idx].key in keys_to_remove:
+            del model.metadata_props[idx]
+    model.metadata_props.extend(
+        [
+            StringStringEntryProto(
+                key="patchcore_preprocess",
+                value="fused" if fuse_preprocess else "standard",
+            ),
+            StringStringEntryProto(key="patchcore_precision", value=precision),
+            StringStringEntryProto(key="patchcore_image_size", value=str(image_size)),
+            StringStringEntryProto(key="patchcore_target_dim", value=str(target_dim)),
+        ]
+    )
+    onnx.save(model, str(output))
+
+
+def simplify_onnx_model(path: Path, *, skip: bool = False) -> None:
+    if skip:
+        return
+
+    try:
+        import onnx
+        from onnxsim import simplify
+    except ImportError:
+        print(f"[warn] onnxsim 未安装，跳过图简化: pip install onnxsim")
+        return
+
+    model = onnx.load(str(path))
+    try:
+        model_simp, check = simplify(model)
+    except Exception as exc:
+        print(f"[warn] onnxsim 失败，保留原图 ({path.name}): {exc}")
+        return
+
+    if not check:
+        print(f"[warn] onnxsim 校验未通过，保留原图: {path.name}")
+        return
+
+    onnx.save(model_simp, str(path))
+    print(f"[onnxsim] simplified -> {path.name}")
+
+
+def convert_to_fp16(src: Path, dst: Path) -> None:
+    import onnx
+
+    try:
+        from onnxruntime.transformers.float16 import convert_float_to_float16
+    except ImportError as exc:
+        raise RuntimeError("FP16 转换需要 onnxruntime: pip install onnxruntime") from exc
+
+    model = onnx.load(str(src))
+    model_fp16 = convert_float_to_float16(model, keep_io_types=True)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    onnx.save(model_fp16, str(dst))
+
+
+def quantize_int8(src: Path, dst: Path) -> None:
+    from onnxruntime.quantization import QuantType, quantize_dynamic
+
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    quantize_dynamic(str(src), str(dst), weight_type=QuantType.QUInt8)
+
+
+def resolve_output_path(
+    spec: BackboneSpec,
+    models_dir: Path,
+    output: Path | None,
+    fuse_preprocess: bool,
+    fp16: bool,
+    int8: bool,
+) -> Path:
+    if output is not None:
+        return output
+    stem = Path(spec.onnx_file).stem
+    suffix = ""
+    if fuse_preprocess:
+        suffix += "_fused"
+    if fp16:
+        suffix += "_fp16"
+    if int8:
+        suffix += "_int8"
+    return models_dir / f"{stem}{suffix}.onnx"
+
+
 def export_backbone(
     backbone_id: str,
     output: Path,
     image_size: int,
     target_dim: int,
     opset: int,
+    fuse_preprocess: bool = True,
+    fp16: bool = False,
+    int8: bool = False,
+    calibration_dir: Path | None = None,
+    simplify: bool = True,
 ) -> None:
     spec = BACKBONE_REGISTRY[resolve_backbone_id(backbone_id)]
-    model = spec.builder()
-    if target_dim != 1024:
-        # Rebuild projection for custom target dim
-        in_channels = model.projection.in_channels
-        model.projection = nn.Conv2d(in_channels, target_dim, kernel_size=1)
-    model.eval()
+    model = build_model(backbone_id, target_dim, fuse_preprocess, image_size)
 
-    dummy = torch.randn(1, 3, image_size, image_size)
+    if fuse_preprocess:
+        dummy = torch.rand(1, 3, image_size, image_size) * 255.0
+        dynamic_axes = {"input": {0: "batch"}, "features": {0: "batch"}}
+    else:
+        dummy = torch.randn(1, 3, image_size, image_size)
+        dynamic_axes = {"input": {0: "batch"}, "features": {0: "batch"}}
+
     output.parent.mkdir(parents=True, exist_ok=True)
+    fp32_path = output
+    if fp16 or int8:
+        fp32_path = output.with_name(output.stem + "._fp32tmp.onnx")
+
     torch.onnx.export(
         model,
         dummy,
-        str(output),
+        str(fp32_path),
         input_names=["input"],
         output_names=["features"],
-        dynamic_axes={"input": {0: "batch"}, "features": {0: "batch"}},
+        dynamic_axes=dynamic_axes,
         opset_version=opset,
         dynamo=False,
     )
-    print(f"[{spec.display_name}] -> {output}")
+
+    simplify_onnx_model(fp32_path, skip=not simplify)
+
+    precision = "fp32"
+    attach_metadata(
+        fp32_path,
+        fuse_preprocess=fuse_preprocess,
+        precision="fp32",
+        image_size=image_size,
+        target_dim=target_dim,
+    )
+
+    current = fp32_path
+    if fp16:
+        fp16_path = output if not int8 else output.with_name(output.stem + "._fp16tmp.onnx")
+        convert_to_fp16(current, fp16_path)
+        attach_metadata(
+            fp16_path,
+            fuse_preprocess=fuse_preprocess,
+            precision="fp16",
+            image_size=image_size,
+            target_dim=target_dim,
+        )
+        if current != fp32_path:
+            current.unlink(missing_ok=True)
+        current = fp16_path
+        precision = "fp16"
+
+    if int8:
+        quantize_int8(current, output)
+        attach_metadata(
+            output,
+            fuse_preprocess=fuse_preprocess,
+            precision="int8",
+            image_size=image_size,
+            target_dim=target_dim,
+        )
+        if current != output:
+            current.unlink(missing_ok=True)
+        precision = "int8"
+    elif fp16 and current != output:
+        import shutil
+
+        shutil.move(str(current), str(output))
+
+    if fp32_path.exists() and fp32_path != output and fp32_path.name.endswith("._fp32tmp.onnx"):
+        fp32_path.unlink(missing_ok=True)
+
+    print(f"[{spec.display_name}] preprocess={'fused' if fuse_preprocess else 'standard'} precision={precision} -> {output}")
 
 
-def export_all(models_dir: Path, image_size: int, target_dim: int, opset: int) -> None:
+def export_all(
+    models_dir: Path,
+    image_size: int,
+    target_dim: int,
+    opset: int,
+    fuse_preprocess: bool,
+    fp16: bool,
+    int8: bool,
+    calibration_dir: Path | None,
+    simplify: bool,
+) -> None:
     for spec in BACKBONE_REGISTRY.values():
-        export_backbone(spec.id, models_dir / spec.onnx_file, image_size, target_dim, opset)
+        output = resolve_output_path(spec, models_dir, None, fuse_preprocess, fp16, int8)
+        export_backbone(
+            spec.id,
+            output,
+            image_size,
+            target_dim,
+            opset,
+            fuse_preprocess=fuse_preprocess,
+            fp16=fp16,
+            int8=int8,
+            calibration_dir=calibration_dir,
+            simplify=simplify,
+        )
 
 
 def list_backbones() -> None:
@@ -270,20 +485,74 @@ def main() -> None:
     parser.add_argument("--image-size", type=int, default=224)
     parser.add_argument("--target-dim", type=int, default=1024)
     parser.add_argument("--opset", type=int, default=17)
+    parser.add_argument(
+        "--no-fuse-preprocess",
+        action="store_true",
+        help="导出旧版 ONNX（C# 侧 resize+normalize，输入为已归一化 224x224）",
+    )
+    parser.add_argument(
+        "--no-onnxsim",
+        action="store_true",
+        help="跳过 onnxsim 图简化（默认 export 后自动 simplify）",
+    )
+    parser.add_argument("--fp16", action="store_true", help="Also export FP16 variant")
+    parser.add_argument(
+        "--int8",
+        action="store_true",
+        help="Also export INT8 variant (dynamic quant; use scripts/quantize_backbone.py for static)",
+    )
+    parser.add_argument(
+        "--calibration-dir",
+        type=Path,
+        help="Image directory for static INT8 calibration (optional)",
+    )
     args = parser.parse_args()
+    fuse_preprocess = not args.no_fuse_preprocess
+    simplify = not args.no_onnxsim
 
     if args.list:
         list_backbones()
         return
 
+    if args.int8 and not fuse_preprocess:
+        parser.error("INT8 量化需使用默认 fused ONNX，请勿加 --no-fuse-preprocess。")
+
     if args.all:
-        export_all(args.models_dir, args.image_size, args.target_dim, args.opset)
+        export_all(
+            args.models_dir,
+            args.image_size,
+            args.target_dim,
+            args.opset,
+            fuse_preprocess,
+            args.fp16,
+            args.int8,
+            args.calibration_dir,
+            simplify,
+        )
         return
 
     backbone_id = resolve_backbone_id(args.backbone)
     spec = BACKBONE_REGISTRY[backbone_id]
-    output = args.output or args.models_dir / spec.onnx_file
-    export_backbone(backbone_id, output, args.image_size, args.target_dim, args.opset)
+    output = resolve_output_path(
+        spec,
+        args.models_dir,
+        args.output,
+        fuse_preprocess,
+        args.fp16,
+        args.int8,
+    )
+    export_backbone(
+        backbone_id,
+        output,
+        args.image_size,
+        args.target_dim,
+        args.opset,
+        fuse_preprocess=fuse_preprocess,
+        fp16=args.fp16,
+        int8=args.int8,
+        calibration_dir=args.calibration_dir,
+        simplify=simplify,
+    )
 
 
 if __name__ == "__main__":

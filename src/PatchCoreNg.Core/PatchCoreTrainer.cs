@@ -37,7 +37,7 @@ public sealed class PatchCoreTrainer : IDisposable
             $"预处理并行={FeaturePipeline.ResolvePreprocessParallelism(_config.PreprocessParallelism)}");
 
         var tensors = FeaturePipeline.PreprocessImages(
-            imagePaths, _config.ImageSize, _config.PreprocessParallelism, log, "训练-预处理");
+            imagePaths, _config.ImageSize, _extractor.PreprocessMode, _config.PreprocessParallelism, log, "训练-预处理");
         var featureMaps = FeaturePipeline.ExtractFeatureMaps(
             _extractor, tensors, _config.InferenceBatchSize, log, "训练-特征提取");
         EmbedDimension.EnsureFeatureMapMatches(

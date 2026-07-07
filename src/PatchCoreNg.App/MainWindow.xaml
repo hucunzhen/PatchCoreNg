@@ -282,7 +282,7 @@
                             <Grid.ToolTip>
                                 <ToolTip>
                                     <TextBlock TextWrapping="Wrap"
-                                               Text="Backbone 对应的 ONNX 特征提取模型路径。预设 backbone 自动关联 models 目录下文件；选「自定义 ONNX」可手动指定。&#x0a;导出命令：python scripts/export_backbone.py --backbone &lt;名称&gt;"/>
+                                               Text="Backbone 对应的 ONNX 特征提取模型路径。预设 backbone 自动关联 models 目录下文件；选「自定义 ONNX」可手动指定。&#x0a;导出：选择 backbone 与输入尺寸/特征维度后，点击「导出 ONNX」按钮（无需手动敲命令）。"/>
                                 </ToolTip>
                             </Grid.ToolTip>
                             <Grid.ColumnDefinitions>
@@ -298,9 +298,36 @@
                         </Grid>
                         <StackPanel Margin="116,0,0,8" Orientation="Horizontal">
                             <TextBlock Text="{Binding BackboneStatus}" Foreground="#1565C0" VerticalAlignment="Center"/>
-                            <Button Margin="12,0,0,0" Style="{StaticResource BrowseButton}" Content="导出 ONNX"
+                            <CheckBox Margin="12,0,0,0" Content="FP16" IsChecked="{Binding ExportOnnxFp16}"
+                                      VerticalAlignment="Center"
+                                      Visibility="{Binding IsCustomBackbone, Converter={x:Static local:InverseBooleanConverter.Instance}, FallbackValue=Visible}">
+                                <CheckBox.ToolTip>
+                                    <ToolTip>
+                                        <TextBlock TextWrapping="Wrap"
+                                                   Text="导出 FP16 变体（推荐 DirectML/GPU），文件名带 _fused_fp16。程序会自动优先加载 FP16 模型。"/>
+                                    </ToolTip>
+                                </CheckBox.ToolTip>
+                            </CheckBox>
+                            <CheckBox Margin="12,0,0,0" Content="INT8" IsChecked="{Binding ExportOnnxInt8}"
+                                      VerticalAlignment="Center"
+                                      Visibility="{Binding IsCustomBackbone, Converter={x:Static local:InverseBooleanConverter.Instance}, FallbackValue=Visible}">
+                                <CheckBox.ToolTip>
+                                    <ToolTip>
+                                        <TextBlock TextWrapping="Wrap"
+                                                   Text="动态 INT8 量化（权重 UINT8，计算仍为 FP32）。&#x0a;⚠ DirectML/CUDA 上 INT8 通常比 FP16 更慢（缺少高效 INT8 算子）；GPU 推理请优先勾选 FP16。&#x0a;INT8 更适合纯 CPU 部署或追求更小模型体积，导出后请用 OK/NG 验证精度。"/>
+                                    </ToolTip>
+                                </CheckBox.ToolTip>
+                            </CheckBox>
+                            <Button Margin="12,0,0,0" Style="{StaticResource PrimaryButton}" Content="导出 ONNX"
                                     Command="{Binding ExportBackboneCommand}"
-                                    Visibility="{Binding IsCustomBackbone, Converter={x:Static local:InverseBooleanConverter.Instance}, FallbackValue=Visible}"/>
+                                    Visibility="{Binding IsCustomBackbone, Converter={x:Static local:InverseBooleanConverter.Instance}, FallbackValue=Visible}">
+                                <Button.ToolTip>
+                                    <ToolTip>
+                                        <TextBlock TextWrapping="Wrap"
+                                                   Text="一键运行 scripts/export_backbone.py，使用当前 backbone、输入尺寸、特征维度。&#x0a;默认 fused 预处理 + onnxsim。可选 FP16 / INT8 量化。&#x0a;需已安装 Python 与依赖: pip install -r scripts/requirements-export.txt"/>
+                                    </ToolTip>
+                                </Button.ToolTip>
+                            </Button>
                         </StackPanel>
 
                         <Grid Margin="0,0,0,8">
