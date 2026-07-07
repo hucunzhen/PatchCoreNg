@@ -440,7 +440,7 @@ public sealed class PatchCoreService
 
         log.Info(
             "批量推理",
-            $"{pathList.Count} 张 | 逐张处理 | 设备={predictor.ExecutionProvider} | kNN并行={FeaturePipeline.ResolvePreprocessParallelism(resolvedConfig.PreprocessParallelism)} | 热力图={(resolvedConfig.SaveHeatmap ? "开" : "关")}");
+            $"{pathList.Count} 张 | 逐张处理 | 设备={predictor.ExecutionProvider} | kNN={predictor.KnnsBackend} | 热力图={(resolvedConfig.SaveHeatmap ? "开" : "关")}");
 
         if (heatmapOutputDir is not null)
             Directory.CreateDirectory(heatmapOutputDir);

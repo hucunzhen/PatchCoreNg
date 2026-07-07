@@ -1214,7 +1214,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             var config = _settings.ToConfig();
-            var progress = new Progress<string>(msg => AppendTrainLog(msg));
+            var progress = ConsoleLog.CreateProgress(AppendTrainLogUi);
             _settings.NormalizeSplitRatios();
             CaptureSettingsFromUi(_activeProfileName);
             var result = await Task.Run(() => _service.TrainAndTune(new TrainAndTuneRequest
@@ -1316,7 +1316,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 throw new InvalidOperationException("未找到可推理的图像。");
 
             var config = _settings.ToConfig();
-            var progress = new Progress<string>(msg => InferSummary = msg);
+            var progress = ConsoleLog.CreateProgress(msg => InferSummary = msg);
             var batch = await Task.Run(() =>
                 _service.Predict(ModelPath, inputList, InferOutputPath, config, progress));
 
@@ -1345,6 +1345,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             InferSummary =
                 $"Backbone={BackboneCatalog.Get(SelectedBackboneId).DisplayName} | 完成 {batch.Items.Count} 张 | NG={ngCount} | OK={batch.Items.Count - ngCount} | {thresholdHint}" +
                 (config.SaveHeatmap ? "" : " | 仅结果（无热力图）");
+            ConsoleLog.WriteLine(InferSummary);
             if (Predictions.LastOrDefault() is { } last)
                 SetPreviewFromRow(last);
         }
@@ -1352,6 +1353,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             InferTimeText = "总耗时: 失败";
             InferSummary = ex.Message;
+            ConsoleLog.WriteLine($"错误: {ex.Message}");
             MessageBox.Show(ex.Message, "推理失败", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
@@ -1521,6 +1523,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     private void AppendTrainLog(string message)
+    {
+        ConsoleLog.WriteLine(message);
+        AppendTrainLogUi(message);
+    }
+
+    private void AppendTrainLogUi(string message)
     {
         TrainLog = string.IsNullOrEmpty(TrainLog) ? message : $"{TrainLog}\n{message}";
     }

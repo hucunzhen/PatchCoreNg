@@ -28,14 +28,13 @@ public static class KnnsFeatureHelper
         KnnsSearchOptions options)
     {
         var prepared = PrepareFeatureMap(featureMap, options);
-        var patches = AggregatePatches(prepared, patchSize);
-        if (patches.Length == 0)
+        if (prepared.Height == 0 || prepared.Width == 0)
         {
             throw new InvalidOperationException(
                 $"特征图为空 ({prepared.Channels}x{prepared.Height}x{prepared.Width})。");
         }
 
-        var (distances, imageScore) = ScorePatches(memoryBank, patches, numNeighbors);
+        var (distances, imageScore) = memoryBank.ScoreFeatureMap(prepared, patchSize, numNeighbors);
         return new FeatureMapScoreDetail(imageScore, distances, prepared);
     }
 }

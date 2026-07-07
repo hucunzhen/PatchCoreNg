@@ -1,17 +1,73 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
+
+
   <PropertyGroup>
+
     <TargetFramework>net8.0</TargetFramework>
+
     <ImplicitUsings>enable</ImplicitUsings>
+
     <Nullable>enable</Nullable>
+
     <RootNamespace>PatchCoreNg</RootNamespace>
+
+    <NativeRoot>$(MSBuildThisFileDirectory)..\..\native</NativeRoot>
+
+    <NativeBuildDir>$(NativeRoot)\build</NativeBuildDir>
+
+    <NativeDll>$(NativeBuildDir)\bin\patchcore_native.dll</NativeDll>
+
+    <BuildNativeScript>$(MSBuildThisFileDirectory)..\..\scripts\build_native.ps1</BuildNativeScript>
+
   </PropertyGroup>
 
+
+
   <ItemGroup>
+
     <PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu" Version="1.21.0" />
+
     <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.21.0" />
+
     <PackageReference Include="OpenCvSharp4" Version="4.10.0.20240616" />
+
     <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.10.0.20240616" />
+
   </ItemGroup>
 
+
+
+  <Target Name="BuildNativeLib" BeforeTargets="Build" Condition="Exists('$(NativeRoot)\CMakeLists.txt')">
+
+    <Message Importance="high" Text="Building native kNN library (patchcore_native)..." />
+
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(BuildNativeScript)&quot; -Configuration $(Configuration)"
+
+          IgnoreExitCode="true" />
+
+    <Warning Text="patchcore_native.dll 未生成，kNN 将使用 C# 回退。请安装 Visual Studio C++ 工作负载后运行 scripts/build_native.ps1。"
+
+             Condition="!Exists('$(NativeDll)')" />
+
+  </Target>
+
+
+
+  <Target Name="CopyNativeDll" AfterTargets="Build">
+
+    <Copy SourceFiles="$(NativeDll)"
+
+          DestinationFolder="$(OutputPath)"
+
+          SkipUnchangedFiles="true"
+
+          Condition="Exists('$(NativeDll)')" />
+
+  </Target>
+
+
+
 </Project>
+
+

@@ -53,7 +53,7 @@ public sealed class PatchCoreTrainer : IDisposable
 
         var referenceMap = featureMaps[0];
         var knnsOptions = KnnsSearchOptions.FromConfig(_config);
-        var memoryBank = new MemoryBank(coreset, knnsOptions);
+        using var memoryBank = new MemoryBank(coreset, knnsOptions);
         var trainScores = FeaturePipeline.ScoreFeatureMaps(
             memoryBank,
             featureMaps,

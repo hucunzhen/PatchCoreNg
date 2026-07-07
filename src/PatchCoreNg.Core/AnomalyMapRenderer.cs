@@ -3,11 +3,12 @@ using OpenCvSharp;
 namespace PatchCoreNg;
 
 /// <summary>
-/// 将特征图尺度的 patch 分数映射回原图坐标并渲染热力图叠加。
+/// 将特征图尺度的 patch 分数映射回原图坐标，全图 min-max 归一化后渲染异常热力图。
 /// </summary>
 public static class AnomalyMapRenderer
 {
     private const double GaussianSigma = 4.0;
+    private const double OverlayAlpha = 0.4;
 
     public static string SaveThresholdHeatmap(
         string imagePath,
@@ -23,7 +24,7 @@ public static class AnomalyMapRenderer
             throw new FileNotFoundException($"无法读取图像: {imagePath}");
 
         using var scoreLow = BuildScoreMap(featureMap.Height, featureMap.Width, patchScores);
-        using var output = RenderOverlay(original, scoreLow, threshold);
+        using var output = RenderOverlay(original, scoreLow);
 
         var fileName = $"{Path.GetFileNameWithoutExtension(imagePath)}_{label}_{imageScore:F4}.jpg";
         var savePath = Path.Combine(outputDir, fileName);
@@ -33,6 +34,12 @@ public static class AnomalyMapRenderer
 
     public static Mat BuildScoreMap(int height, int width, float[] patchScores)
     {
+        if (patchScores.Length != height * width)
+        {
+            throw new ArgumentException(
+                $"patch 分数数量 {patchScores.Length} 与特征图尺寸 {width}x{height} 不匹配。");
+        }
+
         var scoreMap = new Mat(height, width, MatType.CV_32FC1);
         for (var y = 0; y < height; y++)
         {
@@ -46,7 +53,7 @@ public static class AnomalyMapRenderer
         return scoreMap;
     }
 
-    public static Mat RenderOverlay(Mat originalBgr, Mat scoreLow, float threshold)
+    public static Mat RenderOverlay(Mat originalBgr, Mat scoreLow)
     {
         var origW = originalBgr.Width;
         var origH = originalBgr.Height;
@@ -55,63 +62,32 @@ public static class AnomalyMapRenderer
         var kernel = ComputeGaussianKernelSize(scoreLow.Rows, scoreLow.Cols);
         Cv2.GaussianBlur(scoreLow, scoreSmooth, kernel, GaussianSigma);
 
-        var maxAbove = threshold;
-        for (var y = 0; y < scoreSmooth.Rows; y++)
-        {
-            for (var x = 0; x < scoreSmooth.Cols; x++)
-            {
-                var value = scoreSmooth.At<float>(y, x);
-                if (value > threshold && value > maxAbove)
-                    maxAbove = value;
-            }
-        }
-
-        var output = originalBgr.Clone();
-        if (maxAbove <= threshold)
-            return output;
-
-        using var highlightLow = new Mat(scoreLow.Size(), MatType.CV_32FC1, Scalar.All(0));
-        var span = maxAbove - threshold;
-        for (var y = 0; y < scoreSmooth.Rows; y++)
-        {
-            for (var x = 0; x < scoreSmooth.Cols; x++)
-            {
-                var value = scoreSmooth.At<float>(y, x);
-                if (value > threshold)
-                    highlightLow.Set(y, x, (value - threshold) / span);
-            }
-        }
-
-        using var maskLow = new Mat();
-        Cv2.Compare(scoreSmooth, new Scalar(threshold), maskLow, CmpType.GT);
-
-        using var highlightFull = new Mat();
+        using var scoreFull = new Mat();
         Cv2.Resize(
-            highlightLow,
-            highlightFull,
+            scoreSmooth,
+            scoreFull,
             new Size(origW, origH),
             0,
             0,
             InterpolationFlags.Linear);
 
-        using var maskFull = new Mat();
-        Cv2.Resize(
-            maskLow,
-            maskFull,
-            new Size(origW, origH),
-            0,
-            0,
-            InterpolationFlags.Nearest);
+        Cv2.MinMaxLoc(scoreFull, out double minVal, out double maxVal);
+        var span = (float)(maxVal - minVal);
+        if (span <= 1e-8f)
+            return originalBgr.Clone();
 
-        using var highlightU8 = new Mat();
-        highlightFull.ConvertTo(highlightU8, MatType.CV_8UC1, 255.0);
+        using var normalized = new Mat();
+        scoreFull.ConvertTo(normalized, MatType.CV_32FC1, 1.0 / span, -minVal / span);
+
+        using var normalizedU8 = new Mat();
+        normalized.ConvertTo(normalizedU8, MatType.CV_8UC1, 255.0);
+
         using var colored = new Mat();
-        Cv2.ApplyColorMap(highlightU8, colored, ColormapTypes.Jet);
+        Cv2.ApplyColorMap(normalizedU8, colored, ColormapTypes.Jet);
 
         using var blended = new Mat();
-        Cv2.AddWeighted(originalBgr, 0.55, colored, 0.45, 0, blended);
-        blended.CopyTo(output, maskFull);
-        return output;
+        Cv2.AddWeighted(originalBgr, 1.0 - OverlayAlpha, colored, OverlayAlpha, 0, blended);
+        return blended.Clone();
     }
 
     private static Size ComputeGaussianKernelSize(int height, int width)

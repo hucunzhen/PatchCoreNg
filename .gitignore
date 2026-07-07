@@ -3,6 +3,8 @@ obj/
 output/
 *.user
 .vs/
+native/build/
+tmp/
 
 # Runtime artifacts
 models/*.onnx

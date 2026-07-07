@@ -23,6 +23,12 @@ public sealed class PatchCorePredictor : IDisposable
 
     public string ExecutionProvider => _extractor.ExecutionProvider;
 
+    public string KnnsBackend => _memoryBank.UsesNativeAcceleration
+        ? "Native(C++)"
+        : NativeAcceleration.IsAvailable
+            ? "Managed(C#)"
+            : "Managed(C#), native 未加载";
+
     internal FeatureExtractor Extractor => _extractor;
 
     internal MemoryBank MemoryBank => _memoryBank;
@@ -96,7 +102,11 @@ public sealed class PatchCorePredictor : IDisposable
         string? outputDir = null) =>
         FinalizeResult(imagePath, scoredFeatureMap, imageScore, patchDistances, outputDir, new PredictionStageTimingBuilder());
 
-    public void Dispose() => _extractor.Dispose();
+    public void Dispose()
+    {
+        _memoryBank.Dispose();
+        _extractor.Dispose();
+    }
 
     private PredictionResult ScoreAndCreateResult(
         string imagePath,
@@ -110,21 +120,35 @@ public sealed class PatchCorePredictor : IDisposable
         timing.FeatureDownscale = watch.Elapsed;
         watch.Restart();
 
-        var patches = KnnsFeatureHelper.AggregatePatches(prepared, _config.PatchSize);
-        timing.PatchAggregate = watch.Elapsed;
-        watch.Restart();
-
-        if (patches.Length == 0)
+        if (prepared.Height == 0 || prepared.Width == 0)
         {
             throw new InvalidOperationException(
                 $"特征图为空 ({prepared.Channels}x{prepared.Height}x{prepared.Width})。");
         }
 
-        var (patchDistances, imageScore) = KnnsFeatureHelper.ScorePatches(
-            _memoryBank,
-            patches,
-            _config.NumNeighbors);
-        timing.KnnsScore = watch.Elapsed;
+        float[] patchDistances;
+        float imageScore;
+        if (_memoryBank.UsesNativeAcceleration)
+        {
+            (patchDistances, imageScore) = _memoryBank.ScoreFeatureMap(
+                prepared,
+                _config.PatchSize,
+                _config.NumNeighbors);
+            timing.PatchAggregate = TimeSpan.Zero;
+            timing.KnnsScore = watch.Elapsed;
+        }
+        else
+        {
+            var patches = KnnsFeatureHelper.AggregatePatches(prepared, _config.PatchSize);
+            timing.PatchAggregate = watch.Elapsed;
+            watch.Restart();
+
+            (patchDistances, imageScore) = KnnsFeatureHelper.ScorePatches(
+                _memoryBank,
+                patches,
+                _config.NumNeighbors);
+            timing.KnnsScore = watch.Elapsed;
+        }
 
         return FinalizeResult(imagePath, prepared, imageScore, patchDistances, outputDir, timing);
     }

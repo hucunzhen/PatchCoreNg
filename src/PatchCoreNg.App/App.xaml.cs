@@ -4,10 +4,13 @@ using System.Windows;
 
 namespace PatchCoreNg.App;
 
-/// <summary>
-/// Interaction logic for App.xaml
-/// </summary>
 public partial class App : Application
 {
+    protected override void OnStartup(StartupEventArgs e)
+    {
+        ConsoleLog.Attach("PatchCore-NG Log");
+        ConsoleLog.WriteLine(NativeAcceleration.DescribeStatus());
+        base.OnStartup(e);
+    }
 }
 

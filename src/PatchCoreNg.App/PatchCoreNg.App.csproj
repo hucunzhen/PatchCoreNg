@@ -8,10 +8,25 @@
     <UseWPF>true</UseWPF>
     <ApplicationIcon />
     <RootNamespace>PatchCoreNg.App</RootNamespace>
+    <NativeDll>..\..\native\build\bin\patchcore_native.dll</NativeDll>
+    <CoreNativeDll>..\PatchCoreNg.Core\bin\$(Configuration)\net8.0\patchcore_native.dll</CoreNativeDll>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\PatchCoreNg.Core\PatchCoreNg.Core.csproj" />
   </ItemGroup>
+
+  <Target Name="CopyNativeDll" AfterTargets="Build">
+    <PropertyGroup>
+      <NativeSource Condition="Exists('$(CoreNativeDll)')">$(CoreNativeDll)</NativeSource>
+      <NativeSource Condition="'$(NativeSource)' == '' and Exists('$(NativeDll)')">$(NativeDll)</NativeSource>
+    </PropertyGroup>
+    <Copy SourceFiles="$(NativeSource)"
+          DestinationFolder="$(OutputPath)"
+          SkipUnchangedFiles="true"
+          Condition="'$(NativeSource)' != ''" />
+    <Warning Text="patchcore_native.dll 未复制到输出目录，kNN 将使用 C# 回退。请运行 scripts/build_native.ps1 后重新编译。"
+             Condition="'$(NativeSource)' == ''" />
+  </Target>
 
 </Project>

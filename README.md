@@ -6,14 +6,31 @@
 
 ```
 PatchCoreNg/
+├── native/                 # C++ kNN 加速库（patchcore_native.dll）
 ├── src/PatchCoreNg.Core/   # 核心算法（训练、Coreset、推理、调参）
 ├── src/PatchCoreNg.App/    # WPF 图形界面
 ├── src/PatchCoreNg/        # 命令行工具
-├── scripts/                # Python 脚本（ONNX 导出、示例数据）
+├── scripts/                # Python 脚本（ONNX 导出、示例数据、native 构建）
 ├── models/                 # Backbone ONNX 与训练模型
 ├── config/                 # 超参数配置 JSON
 └── data/                   # 示例数据
 ```
+
+### Native kNN 加速（可选）
+
+推理时 Patch 聚合 + kNN 打分可 offload 到 `patchcore_native.dll`（OpenMP 并行 + AVX2）。DLL 缺失时自动回退到 C# 实现。
+
+**构建：**
+
+```powershell
+# 需要 CMake + MSVC（Visual Studio「使用 C++ 的桌面开发」）
+powershell -File scripts/build_native.ps1
+
+# 或直接 dotnet build（会自动尝试 cmake 构建 native）
+dotnet build src/PatchCoreNg.Core/PatchCoreNg.Core.csproj -c Release
+```
+
+构建成功后 DLL 会复制到 Core / App / CLI 输出目录。推理日志会显示 `kNN=Native(C++)` 或 `kNN=Managed(C#)`。
 
 ## 快速开始
 
